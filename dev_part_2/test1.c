@@ -2,18 +2,24 @@
 #include <stdlib.h>
 #include <string.h>
 
-int main() {
+int a = 0;
+void func(FILE *fp){
     char * str1[1000];
-    FILE * fp = fopen("file.txt", "r");  // Note: Fixed FILE instead of File
     char c;
-    int len = 0;
+    int len = a;
     while(1) {
         c = getc(fp);
         if(c == EOF) break;
-        str1[len++] = c;
+        str1[len] = c;
+        len=len + 1;
         if(len >= 1000) break;
     }
-    printf("%s\n", str1);
+    printf("%s\n", *str1);
+}
+
+int main() {
+    FILE * fp = fopen("file.txt", "r");  // Note: Fixed FILE instead of File
+    func(fp);
 }
 
 // void fun(int a){
