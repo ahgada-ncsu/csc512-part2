@@ -1,3 +1,3 @@
 - mkdir build
 - cd build && cmake .. && make && cd ..
-- clang -fpass-plugin=`echo build/skeleton/SkeletonPass.*` -g test1.c
+- clang -fpass-plugin=`echo build/seminal_pass/SeminalPass.*` -g test1.c
