@@ -61,3 +61,5 @@ vector<line_map> variables_per_line;    // Variables defined at each line
 vector<func_map> functions;             // Functions and their arguments
 vector<var_map> variable_infos;              // Variables and their gets
 vector<func_call_map> function_calls;   // Function calls and their arguments
+
+vector<string> input_functions = {"scanf", "fread", "fopen", "getc"};

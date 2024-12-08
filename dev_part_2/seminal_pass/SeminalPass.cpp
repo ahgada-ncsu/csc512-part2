@@ -142,6 +142,7 @@ namespace {
                                 gl.gets_at_line = Line;
                                 line_map lm = variables_per_line[find_line_index_in_variables_per_line(Line)];
                                 gl.vars = lm;
+                                gl.vars.scope = current_scope;
                                 if(lm.vars.size() > 1) {
                                     // type can be func or var
                                     if(find_function_index_in_function_calls_line(Line) != -1) {
@@ -460,7 +461,41 @@ namespace {
         }
 
         void do_analysis(string var_name, string scope){
+            // find the variable in variable_infos
+            int v = find_variable_index_in_variable_infos(var_name, scope);
+            var_map vm = variable_infos[v];
+
+            // if line number of definition is in functions, then this is a function call
+                // note down function parameter in question
+                // look for where that function is called
+                // look for the name of that parameter in the function call
+                // find where that parameter gets its value from in the new scope
             
+            // check if it gets value from some other variable
+                // loop through gets_value_infos
+                // if it gets value from "val" end search and deem that branch to be not seminal
+                // if it gets value from "func"
+                    // note down func value in question
+                    // if more variables are involved, then find their source
+                    // if more variables are not involved, then check if function call is an input call
+                        // if it is an input call, then find where that input gets its value from
+                        // if it is not an input call, then find where that function is defined and repeat the process
+                            // if it is, stop search and deem that branch to be seminal
+                            // if it is not, then stop search and deem the branch to have no seminal value                
+                // if it gets value from only some other "var", then recursively search where that "var" gets its value from
+
+
+            // find where it gets value from
+            for (auto &gl : vm.gets_value_infos) {
+                errs()<<"analyzing line: "<<gl.code<<"\n";
+                // find out what other variables are there on this line
+                for (auto &va : gl.vars.vars) {
+                    // recursively find where they get their values from
+                    if(va.name != var_name) {
+                        do_analysis(va.name, gl.vars.scope);
+                    }
+                }
+            }
         }
 
 
@@ -568,6 +603,10 @@ namespace {
                 errs() << "Variable: " << vi.name << " defined at line " << vi.defined_at_line << " with scope: "<<vi.scope << "\n";
                 for (auto &gl : vi.gets_value_infos) {
                     errs() << "  Gets value at line " << gl.gets_at_line << " with type " << gl.type << " and code " << gl.code << "\n";
+                    errs() << "    Variables on this line: \n";
+                    for (auto &va : gl.vars.vars) {
+                        errs() << "      " << va.name << " scope: "<<gl.vars.scope << "\n";
+                    }
                 }
             }
 
