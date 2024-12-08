@@ -424,6 +424,7 @@ namespace {
         // function that finds the index of variable in variable_infos with name=n and scope=s
         int find_variable_index_in_variable_infos(string n, string s) {
             for (int i = 0; i < variable_infos.size(); i++) {
+                if(variable_infos[i].name == n && variable_infos[i].scope == "global") return i;
                 if (variable_infos[i].name == n && variable_infos[i].scope == s) {
                     return i;
                 }
@@ -480,12 +481,14 @@ namespace {
             return -1;
         }
 
+        bool seminal = false;
+
         void do_analysis(string var_name, string scope, vector<string> s, bool found=false) {
             // find the variable in variable_infos
             int v = find_variable_index_in_variable_infos(var_name, scope);
             var_map vm = variable_infos[v];
             bool done = false;
-            errs() << "Analyzing variable: " << var_name << " at line " << vm.defined_at_line << " with scope: "<<vm.scope << "\n";
+            // errs() << "Analyzing variable: " << var_name << " at line " << vm.defined_at_line << " with scope: "<<vm.scope << "\n";
 
             // if line number of definition is in functions, then this is a function call
                 // note down function parameter in question
@@ -496,6 +499,9 @@ namespace {
             for(auto &f: functions) {
                 if(f.line_num == vm.defined_at_line) {
                     int fci = find_function_index_in_functions(f.name);
+                    string ss = "";
+                    ss += var_name + " defined as a parameter in function " + f.name;
+                    s.push_back(ss);
                     func_map fm = functions[fci];
                     int arg_index = 0;
                     for(auto &pa: fm.args) 
@@ -503,11 +509,14 @@ namespace {
                     for (int i = 0; i < function_calls.size(); i++) {
                         if (function_calls[i].name == f.name) {
                             func_call_map fcm = function_calls[i];
-                            fcm.args[arg_index].name;                            
+                            fcm.args[arg_index].name;    
                             // prevent infinte recursion
                             if(fcm.args[arg_index].name == var_name && fcm.scope == scope)
                                 continue;
                             else{
+                                ss = "";
+                                ss += var_name + " gets value from argument " + fcm.args[arg_index].name + " in function call " + f.name;
+                                s.push_back(ss);
                                 do_analysis(fcm.args[arg_index].name, fcm.scope, s);
                                 done = true;
                             }
@@ -536,7 +545,7 @@ namespace {
 
             // find where it gets value from
             for (auto &gl : vm.gets_value_infos) {
-                errs()<<"analyzing line: "<<gl.code<<"\n";
+                // errs()<<"analyzing line: "<<gl.code<<"\n";
                 
                 // check if there is a function call on the same line, and analyze each function.
                 for(int i = 0; i < function_calls.size(); i++) {
@@ -544,31 +553,50 @@ namespace {
                         // check if the name is part of the input functions
                         string fname = function_calls[i].name;
                         if(fname == "getc"){
-                            found_val=true;
+                            string ss = "";
+                            ss += var_name + " gets value from each character in " + function_calls[i].args[0].name;
+                            s.push_back(ss);
+                            found_val=false;
                         }else if(fname == "fopen"){
+                            string ss = "";
+                            ss += var_name + " gets value from file at path " + function_calls[i].args[0].name + " opened in mode " + function_calls[i].args[1].name;
+                            s.push_back(ss);
                             found_val = true;
                         } else if(fname == "fread"){
+                            string ss = "";
+                            ss += var_name + " gets value from file at path " + function_calls[i].args[0].name + " read in mode " + function_calls[i].args[1].name;
+                            s.push_back(ss);
                             found_val = true;
                         } else if(fname == "scanf"){
+                            string ss = "";
+                            ss += var_name + " gets value from user input";
+                            s.push_back(ss);
                             found_val = true;
                         }
                     }
                 }
 
-                if(gl.vars.vars.size() == 0) return;
+                if(gl.vars.vars.size() == 0){
+                    return;
+                };
+
                 for (auto &va : gl.vars.vars) {
                     if(va.name != var_name) {
-                        errs()<<"going to analyzing variable: "<<va.name<<"\n";
+                        // errs()<<"going to analyzing variable: "<<va.name<<"\n";
                         do_analysis(va.name, gl.vars.scope, s, found_val);
                     }
                 }
-
             }
 
             if(found_val || found) {
                 errs() << "Branch is seminal\n";
+                for(auto &ss: s) {
+                    errs() << "  " << ss << "\n";
+                }
             }
         }
+
+        bool debug = true;
 
 
     public:
@@ -648,61 +676,77 @@ namespace {
                 }
             }
 
-            errs() << "Variable Trace Analysis\n";
-            errs() << "------------------------\n\n";
-            errs() << "Variables defined at each line\n";
+            if(debug){
+                errs() << "Variable Trace Analysis\n";
+                errs() << "------------------------\n\n";
+                errs() << "Variables defined at each line\n";
 
-            // print variables per line
-            for (auto &vp : variables_per_line) {
-                errs() << "Line: " << vp.line_num << "\n";
-                errs() << "  Scope: " << vp.scope << "\n";
-                for (auto &va : vp.vars) {
-                    errs() << "  Variable: " << va.name << "\n";
+                // print variables per line
+                for (auto &vp : variables_per_line) {
+                    errs() << "Line: " << vp.line_num << "\n";
+                    errs() << "  Scope: " << vp.scope << "\n";
+                    for (auto &va : vp.vars) {
+                        errs() << "  Variable: " << va.name << "\n";
+                    }
                 }
+
+                errs() << "\nFUNCTIONS\n";
+                errs() << "---------\n\n";
+
+                // print function info
+                for (auto &fi : functions) {
+                    errs() << "Function: " << fi.name << " defined at line " << fi.line_num << "\n";
+                    for (auto &pa : fi.args) {
+                        errs() << "  Argument: " << pa.name << " at position " << pa.id << "\n";
+                    }
+                }
+
+                errs() << "\nVARIABLES\n";
+                errs() << "---------\n\n";
+
+                // print variable info
+                for (auto &vi : variable_infos) {
+                    errs() << "Variable: " << vi.name << " defined at line " << vi.defined_at_line << " with scope: "<<vi.scope << "\n";
+                    for (auto &gl : vi.gets_value_infos) {
+                        errs() << "  Gets value at line " << gl.gets_at_line << " with type " << gl.type << " and code " << gl.code << "\n";
+                        errs() << "    Variables on this line: \n";
+                        for (auto &va : gl.vars.vars) {
+                            errs() << "      " << va.name << " scope: "<<gl.vars.scope << "\n";
+                        }
+                    }
+                }
+
+                errs() << "\nFUNCTION CALLS\n";
+                errs() << "--------------\n\n";
+
+                // print function call info
+                for (auto &fci : function_calls) {
+                    errs() << "Function call: " << fci.name << " at line " << fci.line << " with scope: "<<fci.scope << "\n";
+                    for (auto &pa : fci.args) {
+                        errs() << "  Argument: " << pa.name << " at position " << pa.id << "\n";
+                    }
+                }
+
+                
+
+                errs() << "\n\n\n";
             }
 
-            errs() << "\nFUNCTIONS\n";
-            errs() << "---------\n\n";
-
-            // print function info
-            for (auto &fi : functions) {
-                errs() << "Function: " << fi.name << " defined at line " << fi.line_num << "\n";
-                for (auto &pa : fi.args) {
-                    errs() << "  Argument: " << pa.name << " at position " << pa.id << "\n";
-                }
-            }
-
-            errs() << "\nVARIABLES\n";
-            errs() << "---------\n\n";
-
-            // print variable info
-            for (auto &vi : variable_infos) {
-                errs() << "Variable: " << vi.name << " defined at line " << vi.defined_at_line << " with scope: "<<vi.scope << "\n";
-                for (auto &gl : vi.gets_value_infos) {
-                    errs() << "  Gets value at line " << gl.gets_at_line << " with type " << gl.type << " and code " << gl.code << "\n";
-                    errs() << "    Variables on this line: \n";
-                    for (auto &va : gl.vars.vars) {
-                        errs() << "      " << va.name << " scope: "<<gl.vars.scope << "\n";
+            // print target lines
+            errs() << "Target lines: ";
+            for (auto tl : targetLines) {
+                // find variables per line on line tl
+                errs() << tl << " ";
+                for (auto &vp : variables_per_line) {
+                    if(vp.line_num == tl) {
+                        for (auto &va : vp.vars) {
+                            errs() << va.name << " ";
+                            vector<string> s;
+                            do_analysis(va.name, vp.scope, s);
+                        }
                     }
                 }
             }
-
-            errs() << "\nFUNCTION CALLS\n";
-            errs() << "--------------\n\n";
-
-            // print function call info
-            for (auto &fci : function_calls) {
-                errs() << "Function call: " << fci.name << " at line " << fci.line << " with scope: "<<fci.scope << "\n";
-                for (auto &pa : fci.args) {
-                    errs() << "  Argument: " << pa.name << " at position " << pa.id << "\n";
-                }
-            }
-
-            vector<string> s;
-
-            errs() << "\n\n\n";
-
-            do_analysis("c", "func", s);
 
 
             

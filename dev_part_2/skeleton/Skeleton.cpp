@@ -4,410 +4,146 @@
 #include "llvm/Support/raw_ostream.h"
 #include "llvm/IR/IRBuilder.h"
 #include "llvm/IR/Instructions.h"
-#include "llvm/IR/DebugInfo.h"
-#include "llvm/IR/DebugInfoMetadata.h"
-#include <map>
-#include <string>
-#include <set>
 #include <fstream>
+#include <map>
 #include <vector>
-#include <sstream>
+#include <string>
 
 using namespace llvm;
 
 namespace {
-    struct SkeletonPass : public PassInfoMixin<SkeletonPass> {
-    private:
-        std::map<Value*, std::string> varNames;
-        std::map<Value*, DILocalVariable*> debugVars;
 
-        void printFunctionHeader(Function& F) {
-            DISubprogram* SP = F.getSubprogram();
-            unsigned line = SP ? SP->getLine() : 0;
-            
-            errs() << "Analyzing function " << F.getName() 
-                << " at line " << line << " (";
-            
-            // Print arguments
-            bool first = true;
-            for (auto& Arg : F.args()) {
-                if (!first) errs() << ", ";
-                if (DILocalVariable* DV = findArgDebugInfo(&Arg)) {
-                    errs() << DV->getName();
-                    first = false;
-                }
-            }
-            
-            errs() << ")\n";
-        }
 
-        DILocalVariable* findArgDebugInfo(Argument* Arg) {
-            Function* F = Arg->getParent();
-            if (!F->getSubprogram()) return nullptr;
-            
-            unsigned ArgNo = Arg->getArgNo();
-            
-            for (BasicBlock& BB : *F) {
-                for (Instruction& I : BB) {
-                    if (DbgDeclareInst* DDI = dyn_cast<DbgDeclareInst>(&I)) {
-                        DILocalVariable* DV = DDI->getVariable();
-                        if (DV && DV->getArg() == ArgNo + 1) {
-                            return DV;
-                        }
-                    }
-                }
-            }
-            return nullptr;
-        }
+struct BranchInfo {
+    std::string filepath;
+    int branch_id;
+    unsigned int src_lno;
+    unsigned int dest_lno;
+};
+std::vector<BranchInfo> branchInfos;
 
-        void printDbgValueInfo(const DbgDeclareInst* DDI) {
-            if (!DDI) return;
-            
-            DILocalVariable* Var = DDI->getVariable();
-            DILocation* Loc = DDI->getDebugLoc().get();
-            if (Var && Loc) {
-                varNames[DDI->getAddress()] = Var->getName().str();
-                debugVars[DDI->getAddress()] = Var;
-                errs() << Var->getName().str() << " defined at line " << Loc->getLine() << "\n";
-            }
-        }
+FunctionCallee CreateBranchFunction(Function &F) {
+    LLVMContext &func_context = F.getContext();
+    std::vector<Type*> parameters = {
+        Type::getInt32Ty(func_context),
+    };
+    
+    FunctionType *func_type = FunctionType::get(Type::getVoidTy(func_context), parameters, false);
 
-        std::string getVariableName(Value* V) {
-            if (varNames.count(V)) {
-                return varNames[V];
-            }
-            
-            // Try to get name from debug info for arrays
-            if (GetElementPtrInst* GEP = dyn_cast<GetElementPtrInst>(V)) {
-                Value* PtrOp = GEP->getPointerOperand();
-                if (debugVars.count(PtrOp)) {
-                    return debugVars[PtrOp]->getName().str();
-                }
-            }
-            
-            return "";
-        }
+    FunctionCallee func_callee = F.getParent()->getOrInsertFunction("LogBranch", func_type);
 
-        // void traceStoreValue(StoreInst* SI) {
-        //     if (!SI->getDebugLoc()) return;
-            
-        //     Value* PtrOp = SI->getPointerOperand();
-        //     Value* ValOp = SI->getValueOperand();
-            
-        //     std::string varName = getVariableName(PtrOp);
-        //     if (!varName.empty()) {
-        //         errs() << varName << " gets value at line " << SI->getDebugLoc().getLine() << "\n";
-        //     }
-        // }
+    return func_callee;
+}
 
-        void traceStoreValue(StoreInst* SI) {
-            if (!SI->getDebugLoc()) return;
-            
-            Value* PtrOp = SI->getPointerOperand();
-            Value* ValOp = SI->getValueOperand();
-            
-            std::string varName = getVariableName(PtrOp);
-            if (!varName.empty()) {
-                errs() << varName << " gets value at line " << SI->getDebugLoc().getLine() << " || ";
-                
-                const DebugLoc &DL = SI->getDebugLoc();
-                DILocation* Loc = DL.get();
-                if (Loc) {
-                    StringRef File = Loc->getFilename();
-                    unsigned Line = DL.getLine();
+FunctionCallee CreatePointerFunction(Function &F) {
+    LLVMContext &func_context = F.getContext();
+    std::vector<Type*> ParamTypes = {
+        Type::getInt8PtrTy(func_context),
+    };
+
+    // Define the function type
+    FunctionType *func_type = FunctionType::get(Type::getVoidTy(func_context), ParamTypes, false);
+
+    // Check if the function exists within the module that F belongs to, and if not, insert it
+    FunctionCallee func_callee = F.getParent()->getOrInsertFunction("LogPointer", func_type);
+    
+    return func_callee;
+}
+
+
+struct SkeletonPass : public PassInfoMixin<SkeletonPass> {
+    PreservedAnalyses run(Module &M, ModuleAnalysisManager &AM) {
+
+        int branch_id_counter = 1;
+        std::ofstream file("branch_info.txt", std::ios::out | std::ios::trunc);
+        for (auto &F : M.functions()) {
+
+            LLVMContext &func_context = F.getContext();
+            FunctionCallee branch_func_callee = CreateBranchFunction(F);
+            FunctionCallee pointer_func_callee = CreatePointerFunction(F);
+
+            for(auto &B:F) {
+                for(auto & I:B) {
                     
-                    // Read the source file
-                    std::ifstream sourceFile(File.str());
-                    if (sourceFile.is_open()) {
-                        std::string sourceLine;
-                        unsigned currentLine = 1;
-                        
-                        // Read until we find the line we want
-                        while (std::getline(sourceFile, sourceLine) && currentLine < Line) {
-                            currentLine++;
-                        }
-                        
-                        if (currentLine == Line) {
-                            errs() << "Code: " << sourceLine << "\n";
-                        }
-                        
-                        sourceFile.close();
-                    }
-                }
-            }
-        }
+                    auto *branch_instruction = dyn_cast<BranchInst>(&I);
 
-        std::string getArgValue(Value* Arg, Function* CalledF = nullptr) {
-            // Handle string literals
-            if (GEPOperator* GEP = dyn_cast<GEPOperator>(Arg)) {
-                if (GlobalVariable* GV = dyn_cast<GlobalVariable>(GEP->getPointerOperand())) {
-                    if (GV->hasInitializer()) {
-                        if (ConstantDataArray* CDA = dyn_cast<ConstantDataArray>(GV->getInitializer())) {
-                            if (CDA->isCString()) {
-                                return "\"" + CDA->getAsCString().str() + "\"";
-                            }
-                        }
-                    }
-                }
-            }
-            
-            // Handle array variables
-            if (GetElementPtrInst* GEP = dyn_cast<GetElementPtrInst>(Arg)) {
-                Value* PtrOp = GEP->getPointerOperand();
-                if (AllocaInst* AI = dyn_cast<AllocaInst>(PtrOp)) {
-                    if (debugVars.count(AI)) {
-                        return debugVars[AI]->getName().str();
-                    }
-                }
-            }
-            
-            // Handle regular variables
-            if (LoadInst* LI = dyn_cast<LoadInst>(Arg)) {
-                std::string varName = getVariableName(LI->getPointerOperand());
-                if (!varName.empty()) {
-                    return varName;
-                }
-            }
-            
-            std::string varName = getVariableName(Arg);
-            if (!varName.empty()) {
-                return varName;
-            }
-            
-            return "";
-        }
+                    if(branch_instruction && branch_instruction->isConditional()) {
 
-        void handleFunctionCall(CallInst* CI) {
-            Function* F = CI->getCalledFunction();
-            if (!F || F->getName().startswith("llvm.dbg")) return;
-            
-            if (CI->getDebugLoc()) {
-                std::string fnName = F->getName().str();
-                errs() << "Function call to " << fnName
-                       << " at line " << CI->getDebugLoc().getLine()
-                       << " with arguments: (";
-                
-                bool first = true;
-                for (Use &U : CI->args()) {
-                    if (!first) errs() << ", ";
-                    first = false;
-                    
-                    std::string argValue = getArgValue(U.get(), F);
-                    if (argValue.empty()) {
-                        // Special handling for printf format strings
-                        if (fnName == "printf" && first) {
-                            if (GEPOperator* GEP = dyn_cast<GEPOperator>(U.get())) {
-                                if (GlobalVariable* GV = dyn_cast<GlobalVariable>(GEP->getPointerOperand())) {
-                                    if (GV->hasInitializer()) {
-                                        if (ConstantDataArray* CDA = dyn_cast<ConstantDataArray>(GV->getInitializer())) {
-                                            if (CDA->isCString()) {
-                                                errs() << "\"%s\\n\"";
-                                                continue;
-                                            }
-                                        }
-                                    }
+                        DILocation *source_location = branch_instruction->getDebugLoc(); //Maybe using I.getDebugLoc()
+
+                        if(source_location) {
+
+                            std::string source_file_name = source_location->getFilename().str();
+
+                            unsigned int source_line_number = source_location->getLine();
+
+                            for (unsigned int ii = 0; ii < branch_instruction->getNumSuccessors(); ++ii) {
+                                
+                                BasicBlock *successor = branch_instruction->getSuccessor(ii);
+
+                                if(successor && !successor->empty()) {
+
+                                    DILocation *successor_location = successor->front().getDebugLoc();
+
+                                    unsigned int target_line_number = successor_location->getLine();
+
+                                    branchInfos.push_back({source_file_name, branch_id_counter, source_line_number, target_line_number});
+
+                                    IRBuilder<> Builder(func_context);
+
+                                    Builder.SetInsertPoint(&(successor->front()));
+
+                                    Builder.CreateCall(branch_func_callee, {ConstantInt::get(Type::getInt32Ty(func_context), branch_id_counter)});
+
+                                    branch_id_counter++;
+
                                 }
                             }
+
                         }
-                        errs() << "unknown";
-                    } else {
-                        errs() << argValue;
+
                     }
-                }
-                errs() << ")\n";
-            }
-        }
 
-        void processInstruction(Instruction* I) {
-            if (DbgDeclareInst* DDI = dyn_cast<DbgDeclareInst>(I)) {
-                printDbgValueInfo(DDI);
-            }
-            else if (StoreInst* SI = dyn_cast<StoreInst>(I)) {
-                traceStoreValue(SI);
-            }
-            else if (CallInst* CI = dyn_cast<CallInst>(I)) {
-                handleFunctionCall(CI);
-            }
-        }
-
-        std::vector<unsigned int> targetLines = {11, 12, 13}; // Example line numbers
-        std::map<unsigned int, std::set<std::string>> lineToVars;
-
-        // Helper function to find debug declare instruction for a value
-        const DbgDeclareInst* findDbgDeclare(const Value *V) {
-            const Function *F = nullptr;
-            if (const Instruction *I = dyn_cast<Instruction>(V))
-                F = I->getFunction();
-            else if (const Argument *Arg = dyn_cast<Argument>(V))
-                F = Arg->getParent();
-            
-            if (!F) return nullptr;
-
-            for (const BasicBlock &BB : *F) {
-                for (const Instruction &I : BB) {
-                    if (const DbgDeclareInst *DDI = dyn_cast<DbgDeclareInst>(&I)) {
-                        if (DDI->getAddress() == V)
-                            return DDI;
-                    }
-                }
-            }
-            return nullptr;
-        }
-
-        void getVariableNamesAtLine(const Instruction &I) {
-            const DebugLoc &DL = I.getDebugLoc();
-            if (!DL) return;
-
-            unsigned int currentLine = DL.getLine();
-            
-            // Check if this line is one we're interested in
-            if (std::find(targetLines.begin(), targetLines.end(), currentLine) == targetLines.end())
-                return;
-
-            // Create set for this line if it doesn't exist
-            auto &varNames = lineToVars[currentLine];
-
-            // Check if this is a load instruction
-            if (const LoadInst *LI = dyn_cast<LoadInst>(&I)) {
-                if (const Value *V = LI->getPointerOperand()) {
-                    if (const DbgDeclareInst *DDI = findDbgDeclare(V)) {
-                        if (DILocalVariable *DIVar = DDI->getVariable()) {
-                            varNames.insert(DIVar->getName().str());
-                        }
-                    }
-                }
-            }
-
-            // Check if this is a store instruction
-            if (const StoreInst *SI = dyn_cast<StoreInst>(&I)) {
-                if (const Value *V = SI->getPointerOperand()) {
-                    if (const DbgDeclareInst *DDI = findDbgDeclare(V)) {
-                        if (DILocalVariable *DIVar = DDI->getVariable()) {
-                            varNames.insert(DIVar->getName().str());
-                        }
-                    }
-                }
-            }
-
-            // Check debug info for the instruction itself
-            if (const DbgValueInst *DVI = dyn_cast<DbgValueInst>(&I)) {
-                if (DILocalVariable *DIVar = DVI->getVariable()) {
-                    varNames.insert(DIVar->getName().str());
-                }
-            }
-
-            // Check all operands
-            for (const Use &U : I.operands()) {
-                if (const Value *V = U.get()) {
-                    if (const AllocaInst *AI = dyn_cast<AllocaInst>(V)) {
-                        if (const DbgDeclareInst *DDI = findDbgDeclare(AI)) {
-                            if (DILocalVariable *DIVar = DDI->getVariable()) {
-                                varNames.insert(DIVar->getName().str());
-                            }
-                        }
-                    }
-                }
-            }
-        }
-
-        std::vector<unsigned int> readBranchInfo() {
-            std::ifstream file("branch_info.txt");
-            std::set<unsigned int> uniqueLines;  // Using set for unique numbers
-            std::string line;
-
-            if (!file.is_open()) {
-                errs() << "Error: Could not open branch_info.txt\n";
-                return std::vector<unsigned int>();
-            }
-
-            while (std::getline(file, line)) {
-                // Skip empty lines
-                if (line.empty()) continue;
-
-                // Find position of first comma
-                size_t pos = line.find(',');
-                if (pos == std::string::npos) continue;
-
-                // Extract the part after the comma and trim whitespace
-                std::string numberPart = line.substr(pos + 1);
-                pos = numberPart.find(',');
-                if (pos == std::string::npos) continue;
-
-                // Extract the number and trim whitespace
-                std::string numberStr = numberPart.substr(0, pos);
-                // Remove leading/trailing spaces
-                numberStr.erase(0, numberStr.find_first_not_of(" "));
-                numberStr.erase(numberStr.find_last_not_of(" ") + 1);
-
-                // Convert to integer and add to set
-                unsigned int lineNum = std::stoi(numberStr);
-                uniqueLines.insert(lineNum);
-            }
-
-            file.close();
-
-            // Convert set to vector for return
-            return std::vector<unsigned int>(uniqueLines.begin(), uniqueLines.end());
-        }
-
-    public:
-        PreservedAnalyses run(Module &M, ModuleAnalysisManager &AM) {
-
-            // read text file branch_info.txt
-
-            targetLines = readBranchInfo();
-
-            for (Function &F : M) {
-                if (F.isDeclaration())
-                    continue;
+                    auto *pointer_instruction = dyn_cast<CallInst>(&I);
                     
-                for (BasicBlock &BB : F) {
-                    for (Instruction &I : BB) {
-                        getVariableNamesAtLine(I);
-                    }
-                }
-            }
-            
-            // Print results for each line number
-            for (unsigned int line : targetLines) {
-                errs() << "Variables at line " << line << ": ";
-                if (lineToVars.count(line) && !lineToVars[line].empty()) {
-                    bool first = true;
-                    for (const auto &varName : lineToVars[line]) {
-                        if (!first) errs() << ",";
-                        errs() << varName;
-                        first = false;
-                    }
-                }
-                errs() << "\n";
-            }
+                    if( pointer_instruction){
+                        
+                        if(!pointer_instruction->getCalledFunction()){
+                            
+                            IRBuilder<> Builder(pointer_instruction);
 
-            errs() << "\n\n\n";
-            
-            // Second pass: Function trace analysis
-            for (Function& F : M) {
-                if (!F.isDeclaration()) {
-                    printFunctionHeader(F);
-                    
-                    for (BasicBlock& BB : F) {
-                        for (Instruction& I : BB) {
-                            processInstruction(&I);
+                            Value *called_value = pointer_instruction->getCalledOperand();
+                            
+                            // if (called_value) {
+
+                            //     errs() << "*funcptr_" << called_value << "\n";
+                            // }
+
+                            Builder.CreateCall(pointer_func_callee, called_value);
                         }
+                        
                     }
-                    errs() << "\n";
                 }
             }
             
-            return PreservedAnalyses::all();
         }
+
+        for (const auto &branch : branchInfos) {
+            file << "br_" << branch.branch_id << ": " << branch.filepath << ", " 
+                << branch.src_lno << ", " << branch.dest_lno << "\n";
+        }
+        file.close();
+        return PreservedAnalyses::all();
     };
+};
+
 }
 
 extern "C" LLVM_ATTRIBUTE_WEAK ::llvm::PassPluginLibraryInfo
 llvmGetPassPluginInfo() {
     return {
         .APIVersion = LLVM_PLUGIN_API_VERSION,
-        .PluginName = "Variable Trace Pass",
+        .PluginName = "Skeleton pass",
         .PluginVersion = "v0.1",
         .RegisterPassBuilderCallbacks = [](PassBuilder &PB) {
             PB.registerPipelineStartEPCallback(
