@@ -1,17 +1,4 @@
-#include "llvm/Pass.h"
-#include "llvm/Passes/PassBuilder.h"
-#include "llvm/Passes/PassPlugin.h"
-#include "llvm/Support/raw_ostream.h"
-#include "llvm/IR/IRBuilder.h"
-#include "llvm/IR/Instructions.h"
-#include "llvm/IR/DebugInfo.h"
-#include "llvm/IR/DebugInfoMetadata.h"
-#include <map>
-#include <string>
-#include <set>
-#include <fstream>
-#include <vector>
-#include <sstream>
+#include "sp.hpp"
 
 using namespace llvm;
 
@@ -20,25 +7,49 @@ namespace {
     private:
         std::map<Value*, std::string> varNames;
         std::map<Value*, DILocalVariable*> debugVars;
+        string current_scope = "global";
+
+        void analyzeGlobalVariables(Module &M) {
+            for (GlobalVariable &GV : M.globals()) {
+                if (DIGlobalVariableExpression* DIGVE = dyn_cast_or_null<DIGlobalVariableExpression>(
+                        GV.getMetadata(LLVMContext::MD_dbg))) {
+                    DIGlobalVariable *DGV = DIGVE->getVariable();
+                    
+                    var_map vm;
+                    vm.name = DGV->getName().str();
+                    vm.scope = "global";
+                    vm.defined_at_line = DGV->getLine();
+                    vm.gets_value_infos = std::vector<get_list>();
+                    variable_infos.push_back(vm);
+                    
+                    // Track the name for later use
+                    varNames[&GV] = DGV->getName().str();
+
+                    // Check initializer
+                    if (GV.hasInitializer()) {
+                        // 
+                    }
+                }
+            }
+        }
 
         void printFunctionHeader(Function& F) {
             DISubprogram* SP = F.getSubprogram();
             unsigned line = SP ? SP->getLine() : 0;
-            
-            errs() << "Analyzing function " << F.getName() 
-                << " at line " << line << " (";
-            
-            // Print arguments
-            bool first = true;
+        
+            func_map fm;
+            fm.line_num = line;
+            fm.name = F.getName().str();
+            fm.args = std::vector<param>();
+
+            current_scope = F.getName().str();
+
             for (auto& Arg : F.args()) {
-                if (!first) errs() << ", ";
-                if (DILocalVariable* DV = findArgDebugInfo(&Arg)) {
-                    errs() << DV->getName();
-                    first = false;
-                }
+                if (DILocalVariable* DV = findArgDebugInfo(&Arg)) 
+                    fm.args.push_back({Arg.getArgNo(), DV->getName().str()});
             }
-            
-            errs() << ")\n";
+
+            functions.push_back(fm);
         }
 
         DILocalVariable* findArgDebugInfo(Argument* Arg) {
@@ -65,10 +76,16 @@ namespace {
             
             DILocalVariable* Var = DDI->getVariable();
             DILocation* Loc = DDI->getDebugLoc().get();
+            var_map vm;
             if (Var && Loc) {
                 varNames[DDI->getAddress()] = Var->getName().str();
                 debugVars[DDI->getAddress()] = Var;
-                errs() << Var->getName().str() << " defined at line " << Loc->getLine() << "\n";
+
+                vm.name = Var->getName().str();
+                vm.scope = current_scope;
+                vm.defined_at_line = Loc->getLine();
+                vm.gets_value_infos = std::vector<get_list>();
+                variable_infos.push_back(vm);
             }
         }
 
@@ -88,18 +105,6 @@ namespace {
             return "";
         }
 
-        // void traceStoreValue(StoreInst* SI) {
-        //     if (!SI->getDebugLoc()) return;
-            
-        //     Value* PtrOp = SI->getPointerOperand();
-        //     Value* ValOp = SI->getValueOperand();
-            
-        //     std::string varName = getVariableName(PtrOp);
-        //     if (!varName.empty()) {
-        //         errs() << varName << " gets value at line " << SI->getDebugLoc().getLine() << "\n";
-        //     }
-        // }
-
         void traceStoreValue(StoreInst* SI) {
             if (!SI->getDebugLoc()) return;
             
@@ -108,7 +113,7 @@ namespace {
             
             std::string varName = getVariableName(PtrOp);
             if (!varName.empty()) {
-                errs() << varName << " gets value at line " << SI->getDebugLoc().getLine() << " || ";
+                // errs() << varName << " gets value at line " << SI->getDebugLoc().getLine() << " || ";
                 
                 const DebugLoc &DL = SI->getDebugLoc();
                 DILocation* Loc = DL.get();
@@ -128,13 +133,55 @@ namespace {
                         }
                         
                         if (currentLine == Line) {
-                            errs() << "Code: " << sourceLine << "\n";
+                            // errs() << "Code: " << sourceLine << "\n";
+
+                            int v = find_variable_index_in_variable_infos(varName, current_scope);
+                            if (v != -1) {
+                                var_map vm = variable_infos[v];
+                                get_list gl;
+                                gl.gets_at_line = Line;
+                                line_map lm = variables_per_line[find_line_index_in_variables_per_line(Line)];
+                                gl.vars = lm;
+                                if(lm.vars.size() > 1) {
+                                    // type can be func or var
+                                    if(find_function_index_in_function_calls_line(Line) != -1) {
+                                        gl.type = "func"; // func, var, val, param
+                                    } else {
+                                        gl.type = "var"; // func, var, val, param
+                                    }
+
+                                }else{
+                                    // type can be val or param
+                                    if(find_function_index_in_functions_line(Line) != -1) {
+                                        gl.type = "param"; // func, var, val, param
+                                    } else {
+                                        gl.type = "var"; // func, var, val, param
+                                    }
+                                }
+                                vector<string> temp = split(sourceLine, '=');
+                                gl.code = temp[1];
+                                vm.gets_value_infos.push_back(gl);
+                                variable_infos[v] = vm;
+                            }
+
                         }
                         
                         sourceFile.close();
                     }
                 }
             }
+        }
+
+        vector<string> split(string str, char delimiter) {
+            vector<string> internal;
+            stringstream ss(str); // Turn the string into a stream.
+            string tok;
+            
+            while(getline(ss, tok, delimiter)) {
+                internal.push_back(tok);
+            }
+            
+            return internal;
         }
 
         std::string getArgValue(Value* Arg, Function* CalledF = nullptr) {
@@ -180,42 +227,27 @@ namespace {
         void handleFunctionCall(CallInst* CI) {
             Function* F = CI->getCalledFunction();
             if (!F || F->getName().startswith("llvm.dbg")) return;
+            func_call_map fcm;
             
             if (CI->getDebugLoc()) {
-                std::string fnName = F->getName().str();
-                errs() << "Function call to " << fnName
-                       << " at line " << CI->getDebugLoc().getLine()
-                       << " with arguments: (";
+                fcm.name = F->getName().str();
+                fcm.args = std::vector<param>();
                 
-                bool first = true;
+                int ii = 0;
                 for (Use &U : CI->args()) {
-                    if (!first) errs() << ", ";
-                    first = false;
-                    
                     std::string argValue = getArgValue(U.get(), F);
                     if (argValue.empty()) {
-                        // Special handling for printf format strings
-                        if (fnName == "printf" && first) {
-                            if (GEPOperator* GEP = dyn_cast<GEPOperator>(U.get())) {
-                                if (GlobalVariable* GV = dyn_cast<GlobalVariable>(GEP->getPointerOperand())) {
-                                    if (GV->hasInitializer()) {
-                                        if (ConstantDataArray* CDA = dyn_cast<ConstantDataArray>(GV->getInitializer())) {
-                                            if (CDA->isCString()) {
-                                                errs() << "\"%s\\n\"";
-                                                continue;
-                                            }
-                                        }
-                                    }
-                                }
-                            }
-                        }
-                        errs() << "unknown";
+                        fcm.args.push_back({-1, "unknown"});
                     } else {
-                        errs() << argValue;
+                        fcm.args.push_back({ii, argValue});\
+                        ii+=1;
                     }
                 }
-                errs() << ")\n";
             }
+
+            fcm.scope = current_scope;
+            fcm.line = CI->getDebugLoc().getLine();
+            function_calls.push_back(fcm);
         }
 
         void processInstruction(Instruction* I) {
@@ -254,21 +286,42 @@ namespace {
             return nullptr;
         }
 
+        void trackGlobalVariables(Module &M) {
+            for (GlobalVariable &GV : M.globals()) {
+                if (DIGlobalVariableExpression* DIGVE = dyn_cast_or_null<DIGlobalVariableExpression>(
+                        GV.getMetadata(LLVMContext::MD_dbg))) {
+                    DIGlobalVariable *DGV = DIGVE->getVariable();
+                    unsigned line = DGV->getLine();
+                    lineToVars[line].insert(DGV->getName().str());
+                }
+            }
+        }
+
         void getVariableNamesAtLine(const Instruction &I) {
             const DebugLoc &DL = I.getDebugLoc();
             if (!DL) return;
 
             unsigned int currentLine = DL.getLine();
-            
-            // Check if this line is one we're interested in
-            if (std::find(targetLines.begin(), targetLines.end(), currentLine) == targetLines.end())
-                return;
-
-            // Create set for this line if it doesn't exist
             auto &varNames = lineToVars[currentLine];
+
+            // Check for DbgDeclareInst directly
+            if (const DbgDeclareInst *DDI = dyn_cast<DbgDeclareInst>(&I)) {
+                if (DILocalVariable *DIVar = DDI->getVariable()) {
+                    varNames.insert(DIVar->getName().str());
+                }
+            }
 
             // Check if this is a load instruction
             if (const LoadInst *LI = dyn_cast<LoadInst>(&I)) {
+                // Check for global variables
+                if (const GlobalVariable *GV = dyn_cast<GlobalVariable>(LI->getPointerOperand())) {
+                    if (DIGlobalVariableExpression* DIGVE = dyn_cast_or_null<DIGlobalVariableExpression>(
+                            GV->getMetadata(LLVMContext::MD_dbg))) {
+                        DIGlobalVariable *DGV = DIGVE->getVariable();
+                        varNames.insert(DGV->getName().str());
+                    }
+                }
+                // Check for local variables
                 if (const Value *V = LI->getPointerOperand()) {
                     if (const DbgDeclareInst *DDI = findDbgDeclare(V)) {
                         if (DILocalVariable *DIVar = DDI->getVariable()) {
@@ -280,6 +333,15 @@ namespace {
 
             // Check if this is a store instruction
             if (const StoreInst *SI = dyn_cast<StoreInst>(&I)) {
+                // Check for global variables
+                if (const GlobalVariable *GV = dyn_cast<GlobalVariable>(SI->getPointerOperand())) {
+                    if (DIGlobalVariableExpression* DIGVE = dyn_cast_or_null<DIGlobalVariableExpression>(
+                            GV->getMetadata(LLVMContext::MD_dbg))) {
+                        DIGlobalVariable *DGV = DIGVE->getVariable();
+                        varNames.insert(DGV->getName().str());
+                    }
+                }
+                // Check for local variables
                 if (const Value *V = SI->getPointerOperand()) {
                     if (const DbgDeclareInst *DDI = findDbgDeclare(V)) {
                         if (DILocalVariable *DIVar = DDI->getVariable()) {
@@ -289,19 +351,16 @@ namespace {
                 }
             }
 
-            // Check debug info for the instruction itself
-            if (const DbgValueInst *DVI = dyn_cast<DbgValueInst>(&I)) {
-                if (DILocalVariable *DIVar = DVI->getVariable()) {
-                    varNames.insert(DIVar->getName().str());
-                }
-            }
-
-            // Check all operands
+            // Add variables at their declaration points
             for (const Use &U : I.operands()) {
                 if (const Value *V = U.get()) {
                     if (const AllocaInst *AI = dyn_cast<AllocaInst>(V)) {
                         if (const DbgDeclareInst *DDI = findDbgDeclare(AI)) {
                             if (DILocalVariable *DIVar = DDI->getVariable()) {
+                                // Get the line number from the debug location of the alloca instruction
+                                if (const DebugLoc &AllocaLoc = AI->getDebugLoc()) {
+                                    lineToVars[AllocaLoc.getLine()].insert(DIVar->getName().str());
+                                }
                                 varNames.insert(DIVar->getName().str());
                             }
                         }
@@ -350,10 +409,61 @@ namespace {
             return std::vector<unsigned int>(uniqueLines.begin(), uniqueLines.end());
         }
 
+        // function that finds the index of variable in variable_infos with name=n and scope=s
+        int find_variable_index_in_variable_infos(string n, string s) {
+            for (int i = 0; i < variable_infos.size(); i++) {
+                if (variable_infos[i].name == n && variable_infos[i].scope == s) {
+                    return i;
+                }
+            }
+            return -1;
+        }
+
+        // function that finds the index of line in variables_per_line with line_num=l
+        int find_line_index_in_variables_per_line(int l) {
+            for (int i = 0; i < variables_per_line.size(); i++) {
+                if (variables_per_line[i].line_num == l) {
+                    return i;
+                }
+            }
+            return -1;
+        }
+
+        // function to find the index of function in functions with name=n
+        int find_function_index_in_functions(string n) {
+            for (int i = 0; i < functions.size(); i++) {
+                if (functions[i].name == n) {
+                    return i;
+                }
+            }
+            return -1;
+        }
+
+        // function to find the index of function in function_calls with line=l
+        int find_function_index_in_functions_line(int l) {
+            for (int i = 0; i < functions.size(); i++) {
+                if (functions[i].line_num == l) {
+                    return i;
+                }
+            }
+            return -1;
+        }
+
+        // function to find the index of function in function_calls with line=l
+        int find_function_index_in_function_calls_line(int l) {
+            for (int i = 0; i < function_calls.size(); i++) {
+                if (function_calls[i].line == l) {
+                    return i;
+                }
+            }
+            return -1;
+        }
+
+
     public:
         PreservedAnalyses run(Module &M, ModuleAnalysisManager &AM) {
-
-            // read text file branch_info.txt
+             // Track global variables first
+            trackGlobalVariables(M);
 
             targetLines = readBranchInfo();
 
@@ -367,22 +477,20 @@ namespace {
                     }
                 }
             }
-            
-            // Print results for each line number
-            for (unsigned int line : targetLines) {
-                errs() << "Variables at line " << line << ": ";
-                if (lineToVars.count(line) && !lineToVars[line].empty()) {
-                    bool first = true;
-                    for (const auto &varName : lineToVars[line]) {
-                        if (!first) errs() << ",";
-                        errs() << varName;
-                        first = false;
-                    }
-                }
-                errs() << "\n";
-            }
 
-            errs() << "\n\n\n";
+            for (const auto& lineEntry : lineToVars) {
+                line_map lm;
+                lm.line_num = lineEntry.first;
+                lm.vars = std::vector<variable>();
+                if (!lineEntry.second.empty()) {
+                    for (const auto &varName : lineEntry.second) 
+                        lm.vars.push_back({varName});
+                }
+                variables_per_line.push_back(lm);
+            }
+    
+            // First analyze global variables
+            analyzeGlobalVariables(M);
             
             // Second pass: Function trace analysis
             for (Function& F : M) {
@@ -397,6 +505,14 @@ namespace {
                     errs() << "\n";
                 }
             }
+
+            // porint variable info
+            // for (auto &vi : variable_infos) {
+            //     errs() << "Variable: " << vi.name << " defined at line " << vi.defined_at_line << " with scope: "<<vi.scope << "\n";
+            //     for (auto &gl : vi.gets_value_infos) {
+            //         errs() << "  Gets value at line " << gl.gets_at_line << " with type " << gl.type << " and code " << gl.code << "\n";
+            //     }
+            // }
             
             return PreservedAnalyses::all();
         }

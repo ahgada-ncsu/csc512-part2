@@ -3,9 +3,11 @@
 #include <string.h>
 
 int a = 0;
+
 void func(FILE *fp){
     char * str1[1000];
     char c;
+    a=0;
     int len = a;
     while(1) {
         c = getc(fp);
