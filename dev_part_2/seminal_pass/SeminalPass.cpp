@@ -45,8 +45,14 @@ namespace {
             current_scope = F.getName().str();
 
             for (auto& Arg : F.args()) {
-                if (DILocalVariable* DV = findArgDebugInfo(&Arg)) 
+                if (DILocalVariable* DV = findArgDebugInfo(&Arg)) {
                     fm.args.push_back({Arg.getArgNo(), DV->getName().str()});
+                } else {
+                    // Handle case where debug info isn't available
+                    // Use a default name based on argument position
+                    std::string defaultName = "arg" + std::to_string(Arg.getArgNo());
+                    fm.args.push_back({Arg.getArgNo(), defaultName});
+                }
             }
 
             functions.push_back(fm);
@@ -187,6 +193,11 @@ namespace {
 
         std::string getArgValue(Value* Arg, Function* CalledF = nullptr) {
             // Handle string literals
+
+            if (ConstantInt* CI = dyn_cast<ConstantInt>(Arg)) {
+                return std::to_string(CI->getSExtValue());
+            }
+
             if (GEPOperator* GEP = dyn_cast<GEPOperator>(Arg)) {
                 if (GlobalVariable* GV = dyn_cast<GlobalVariable>(GEP->getPointerOperand())) {
                     if (GV->hasInitializer()) {
@@ -450,6 +461,15 @@ namespace {
             return -1;
         }
 
+        int find_function_index_in_function_calls(string n) {
+            for (int i = 0; i < function_calls.size(); i++) {
+                if (function_calls[i].name == n) {
+                    return i;
+                }
+            }
+            return -1;
+        }
+
         // function to find the index of function in function_calls with line=l
         int find_function_index_in_function_calls_line(int l) {
             for (int i = 0; i < function_calls.size(); i++) {
@@ -460,16 +480,39 @@ namespace {
             return -1;
         }
 
-        void do_analysis(string var_name, string scope){
+        void do_analysis(string var_name, string scope, vector<string> s, bool found=false) {
             // find the variable in variable_infos
             int v = find_variable_index_in_variable_infos(var_name, scope);
             var_map vm = variable_infos[v];
+            bool done = false;
+            errs() << "Analyzing variable: " << var_name << " at line " << vm.defined_at_line << " with scope: "<<vm.scope << "\n";
 
             // if line number of definition is in functions, then this is a function call
                 // note down function parameter in question
                 // look for where that function is called
                 // look for the name of that parameter in the function call
                 // find where that parameter gets its value from in the new scope
+            
+            for(auto &f: functions) {
+                if(f.line_num == vm.defined_at_line) {
+                    int fci = find_function_index_in_functions(f.name);
+                    func_map fm = functions[fci];
+                    int arg_index = 0;
+                    for(auto &pa: fm.args) 
+                        if(pa.name == var_name) {arg_index = pa.id;}
+                    for (int i = 0; i < function_calls.size(); i++) {
+                        if (function_calls[i].name == f.name) {
+                            func_call_map fcm = function_calls[i];
+                            fcm.args[arg_index].name;
+                            // prevent infinte recursion
+                            if(fcm.args[arg_index].name != var_name && fcm.scope != scope) {
+                                do_analysis(fcm.args[arg_index].name, fcm.scope, s);
+                                done = true;
+                            }
+                        }
+                    }
+                }
+            }
             
             // check if it gets value from some other variable
                 // loop through gets_value_infos
@@ -483,18 +526,43 @@ namespace {
                             // if it is, stop search and deem that branch to be seminal
                             // if it is not, then stop search and deem the branch to have no seminal value                
                 // if it gets value from only some other "var", then recursively search where that "var" gets its value from
+            
+            if(done) return;
 
+            bool found_val = false;
 
             // find where it gets value from
             for (auto &gl : vm.gets_value_infos) {
                 errs()<<"analyzing line: "<<gl.code<<"\n";
-                // find out what other variables are there on this line
-                for (auto &va : gl.vars.vars) {
-                    // recursively find where they get their values from
-                    if(va.name != var_name) {
-                        do_analysis(va.name, gl.vars.scope);
+                
+                // check if there is a function call on the same line, and analyze each function.
+                for(int i = 0; i < function_calls.size(); i++) {
+                    if(function_calls[i].line == gl.gets_at_line) {
+                        // check if the name is part of the input functions
+                        string fname = function_calls[i].name;
+                        if(fname == "getc"){
+                            found_val=true;
+                        }else if(fname == "fopen"){
+                            found_val = true;
+                        } else if(fname == "fread"){
+                            found_val = true;
+                        } else if(fname == "scanf"){
+                            found_val = true;
+                        }
                     }
                 }
+
+                if(gl.vars.vars.size() == 0) return;
+                for (auto &va : gl.vars.vars) {
+                    if(va.name != var_name) {
+                        do_analysis(va.name, gl.vars.scope, s, found_val);
+                    }
+                }
+
+            }
+
+            if(found_val || found) {
+                errs() << "Branch is seminal\n";
             }
         }
 
@@ -546,27 +614,32 @@ namespace {
             }
 
             vector<pair<int, string>> scope_map;
-            for (auto f: functions) {
+            for (auto &f: functions) {
+                if (f.name.empty()) continue;  // Skip if name is empty
                 scope_map.push_back({f.line_num, f.name});
             }
-            int minn = scope_map[0].first;
-            int maxx = scope_map[scope_map.size()-1].first;
-            for (int v=0; v<variables_per_line.size(); v++) {
-                for (int i = 0; i < scope_map.size(); i++) {
-                    int ln = variables_per_line[v].line_num;
-                    if(ln > scope_map[i].first) {
-                        if(ln>=maxx){
-                            variables_per_line[v].scope = scope_map[scope_map.size()-1].second;
+
+            // Sort scope_map by line numbers to ensure proper ordering
+            std::sort(scope_map.begin(), scope_map.end());
+
+            if (!scope_map.empty()) {  // Only proceed if we have valid scopes
+                int minn = scope_map[0].first;
+                int maxx = scope_map[scope_map.size()-1].first;
+                
+                for (int v = 0; v < variables_per_line.size(); v++) {
+                    line_map &current_line = variables_per_line[v];
+                    int ln = current_line.line_num;
+                    
+                    // Default to global scope
+                    current_line.scope = "global";
+                    
+                    // Find appropriate scope
+                    for (size_t i = 0; i < scope_map.size(); i++) {
+                        if (ln >= scope_map[i].first && 
+                            (i == scope_map.size()-1 || ln < scope_map[i+1].first)) {
+                            current_line.scope = scope_map[i].second;
                             break;
                         }
-                        continue;
-                    }else{
-                        if(ln < minn){
-                            variables_per_line[v].scope = "global";
-                        }else{
-                            variables_per_line[v].scope = scope_map[i-1].second;
-                        }
-                        break;
                     }
                 }
             }
@@ -621,16 +694,11 @@ namespace {
                 }
             }
 
-            /*
-                ACTUAL ANALYSIS SSA TRACE
+            vector<string> s;
 
-                For each line in targetLines:
-                    For v in variables_per_line[line]:
-                        find where v gets its value from
-                        if it is a function call, log the name of the function for future use
-                        see if other variables exist in that line except the one in question
-                        recursively find where those variables get their values from and repeat
-            */
+            errs() << "\n\n\n";
+
+            do_analysis("c", "func", s);
 
 
             

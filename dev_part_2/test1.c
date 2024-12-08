@@ -2,12 +2,12 @@
 #include <stdlib.h>
 #include <string.h>
 
-void func(FILE *fp);
+void func(int pp, FILE *fp);
 int main();
 
 int a = 0;
 
-void func(FILE *fp){
+void func(int pp, FILE *fp){
     char * str1[1000];
     char c;
     a=0;
@@ -24,7 +24,7 @@ void func(FILE *fp){
 
 int main() {
     FILE * fp = fopen("file.txt", "r");  // Note: Fixed FILE instead of File
-    func(fp);
+    func(5, fp);
 }
 
 // void fun(int a){
