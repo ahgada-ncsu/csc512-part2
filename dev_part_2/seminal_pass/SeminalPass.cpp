@@ -459,6 +459,10 @@ namespace {
             return -1;
         }
 
+        void do_analysis(string var_name, string scope){
+            
+        }
+
 
     public:
         PreservedAnalyses run(Module &M, ModuleAnalysisManager &AM) {
@@ -506,13 +510,90 @@ namespace {
                 }
             }
 
-            // porint variable info
-            // for (auto &vi : variable_infos) {
-            //     errs() << "Variable: " << vi.name << " defined at line " << vi.defined_at_line << " with scope: "<<vi.scope << "\n";
-            //     for (auto &gl : vi.gets_value_infos) {
-            //         errs() << "  Gets value at line " << gl.gets_at_line << " with type " << gl.type << " and code " << gl.code << "\n";
-            //     }
-            // }
+            vector<pair<int, string>> scope_map;
+            for (auto f: functions) {
+                scope_map.push_back({f.line_num, f.name});
+            }
+            int minn = scope_map[0].first;
+            int maxx = scope_map[scope_map.size()-1].first;
+            for (int v=0; v<variables_per_line.size(); v++) {
+                for (int i = 0; i < scope_map.size(); i++) {
+                    int ln = variables_per_line[v].line_num;
+                    if(ln > scope_map[i].first) {
+                        if(ln>=maxx){
+                            variables_per_line[v].scope = scope_map[scope_map.size()-1].second;
+                            break;
+                        }
+                        continue;
+                    }else{
+                        if(ln < minn){
+                            variables_per_line[v].scope = "global";
+                        }else{
+                            variables_per_line[v].scope = scope_map[i-1].second;
+                        }
+                        break;
+                    }
+                }
+            }
+
+            errs() << "Variable Trace Analysis\n";
+            errs() << "------------------------\n\n";
+            errs() << "Variables defined at each line\n";
+
+            // print variables per line
+            for (auto &vp : variables_per_line) {
+                errs() << "Line: " << vp.line_num << "\n";
+                errs() << "  Scope: " << vp.scope << "\n";
+                for (auto &va : vp.vars) {
+                    errs() << "  Variable: " << va.name << "\n";
+                }
+            }
+
+            errs() << "\nFUNCTIONS\n";
+            errs() << "---------\n\n";
+
+            // print function info
+            for (auto &fi : functions) {
+                errs() << "Function: " << fi.name << " defined at line " << fi.line_num << "\n";
+                for (auto &pa : fi.args) {
+                    errs() << "  Argument: " << pa.name << " at position " << pa.id << "\n";
+                }
+            }
+
+            errs() << "\nVARIABLES\n";
+            errs() << "---------\n\n";
+
+            // print variable info
+            for (auto &vi : variable_infos) {
+                errs() << "Variable: " << vi.name << " defined at line " << vi.defined_at_line << " with scope: "<<vi.scope << "\n";
+                for (auto &gl : vi.gets_value_infos) {
+                    errs() << "  Gets value at line " << gl.gets_at_line << " with type " << gl.type << " and code " << gl.code << "\n";
+                }
+            }
+
+            errs() << "\nFUNCTION CALLS\n";
+            errs() << "--------------\n\n";
+
+            // print function call info
+            for (auto &fci : function_calls) {
+                errs() << "Function call: " << fci.name << " at line " << fci.line << " with scope: "<<fci.scope << "\n";
+                for (auto &pa : fci.args) {
+                    errs() << "  Argument: " << pa.name << " at position " << pa.id << "\n";
+                }
+            }
+
+            /*
+                ACTUAL ANALYSIS SSA TRACE
+
+                For each line in targetLines:
+                    For v in variables_per_line[line]:
+                        find where v gets its value from
+                        if it is a function call, log the name of the function for future use
+                        see if other variables exist in that line except the one in question
+                        recursively find where those variables get their values from and repeat
+            */
+
+
             
             return PreservedAnalyses::all();
         }

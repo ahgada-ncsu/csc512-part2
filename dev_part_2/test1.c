@@ -2,6 +2,9 @@
 #include <stdlib.h>
 #include <string.h>
 
+void func(FILE *fp);
+int main();
+
 int a = 0;
 
 void func(FILE *fp){

@@ -33,6 +33,7 @@ typedef struct {
 typedef struct {
     int line_num;
     vector<variable> vars;
+    string scope;
 } line_map;
 
 typedef struct {
