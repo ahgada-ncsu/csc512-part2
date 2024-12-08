@@ -503,12 +503,15 @@ namespace {
                     for (int i = 0; i < function_calls.size(); i++) {
                         if (function_calls[i].name == f.name) {
                             func_call_map fcm = function_calls[i];
-                            fcm.args[arg_index].name;
+                            fcm.args[arg_index].name;                            
                             // prevent infinte recursion
-                            if(fcm.args[arg_index].name != var_name && fcm.scope != scope) {
+                            if(fcm.args[arg_index].name == var_name && fcm.scope == scope)
+                                continue;
+                            else{
                                 do_analysis(fcm.args[arg_index].name, fcm.scope, s);
                                 done = true;
                             }
+
                         }
                     }
                 }
@@ -555,6 +558,7 @@ namespace {
                 if(gl.vars.vars.size() == 0) return;
                 for (auto &va : gl.vars.vars) {
                     if(va.name != var_name) {
+                        errs()<<"going to analyzing variable: "<<va.name<<"\n";
                         do_analysis(va.name, gl.vars.scope, s, found_val);
                     }
                 }

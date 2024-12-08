@@ -11,7 +11,7 @@ void func(int pp, FILE *fp){
     char * str1[1000];
     char c;
     a=0;
-    int len = a;
+    int len = 0;
     while(1) {
         c = getc(fp);
         if(c == EOF) break;
