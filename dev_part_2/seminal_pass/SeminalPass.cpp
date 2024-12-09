@@ -707,9 +707,9 @@ namespace {
                     if(function_calls[i].line == gl.gets_at_line) {
                         // check if the name is part of the input functions
                         string fname = function_calls[i].name;
-                        if(fname == "getc"){
+                        if(fname == "getc" || fname == "fgetc") {
                             string ss = "";
-                            ss += var_name + " gets value from each character in " + function_calls[i].args[0].name;
+                            ss += var_name + " gets value from each character in variable caleld " + function_calls[i].args[0].name;
                             s.push_back(ss);
                             found_val=false;
                         }else if(fname == "fopen"){
