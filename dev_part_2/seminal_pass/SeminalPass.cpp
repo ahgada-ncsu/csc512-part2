@@ -643,6 +643,7 @@ namespace {
                     for(auto &ss: s) {
                         errs() << "  " << ss << "\n";
                     }
+                    errs() << "\n";
                     seminal_output[current_line] = s;
                     seminal = true;
                 }
@@ -733,12 +734,13 @@ namespace {
                 for(auto &ss: s) {
                     errs() << "  " << ss << "\n";
                 }
+                errs() << "\n";
                 seminal_output[current_line] = s;
                 seminal = true;
             }
         }
 
-        bool debug = true;
+        bool debug = false;
 
         int current_line = 0;
         unordered_map<int, vector<string>> seminal_output;
