@@ -1,38 +1,7 @@
-#include <stdio.h>
-#include <stdlib.h>
-#include <string.h>
+// #include <stdio.h>
+// #include <stdlib.h>
+// #include <string.h>
 
-void func(int pp, FILE *fp);
-int main();
-
-int a = 0;
-
-void func(int pp, FILE *fp){
-    char str1[1000];
-    char c;
-    a=0;
-    int len = a;
-    while(1) {
-        c = getc(fp);
-        if(c == EOF) break;
-        str1[len] = c;
-        len=len + 1;
-        if(len >= 1000) break;
-    }
-    str1[len] = '\0';  // Add null terminator
-    printf("%s\n", str1);  // Removed the * operator
-}
-
-int main() {
-    FILE * ppp = fopen("file.txt", "r");
-    if (ppp == NULL) {  // Add error checking for file open
-        printf("Error opening file\n");
-        return 1;
-    }
-    func(5, ppp);
-    fclose(ppp);  // Don't forget to close the file
-    return 0;
-}
 
 // int main() {
 //    int id;
@@ -47,35 +16,23 @@ int main() {
 // }
 
 
+#include<stdio.h>
 
+void fun(int a){
+    for(int i = 0; i < a; i++) {
+        printf("Hello World\n");
+    }
+}
 
-//////////////////////////////////////////////////////////////////////////////////////////
+int main(){
+    int a;
+    scanf("%d",&a);
+    void (*fun_ptr)(int) = &fun;
+    (*fun_ptr)(a);
 
-// void fun(int a){
-//     printf("%d\n",a);
-// }
-
-// int main(){
-//     void (*fun_ptr)(int) = &fun;
-//     (*fun_ptr)(10);
-
-//     int d = 0;
-//     for(int i=0;i<3;i++) {
-//         d+=1;
-//     }
-
-//     int k = 10;
-//     int l = 100;
-
-//     if(k>9){
-//         if(l<200){ 
-//             k-=1;
-//         }
-//     }else if(k==10) {
-//         k+=1;
-//     }else{
-//         k+=2;
-//     }
-
-//     return d;
-// }
+    int d = 0;
+    for(int i=0;i<3;i++) {
+        d+=1;
+    }
+    return d;
+}

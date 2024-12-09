@@ -236,11 +236,62 @@ namespace {
             return "";
         }
 
-        void handleFunctionCall(CallInst* CI) {
-            Function* F = CI->getCalledFunction();
-            if (!F || F->getName().startswith("llvm.dbg")) return;
-            func_call_map fcm;
+        Function* resolveFunctionPointer(Value* V) {
+            if (!V) return nullptr;
             
+            // If it's already a function, return it
+            if (Function* F = dyn_cast<Function>(V)) {
+                return F;
+            }
+            
+            // Handle bitcast of function to function pointer type
+            if (ConstantExpr* CE = dyn_cast<ConstantExpr>(V)) {
+                if (CE->getOpcode() == Instruction::BitCast) {
+                    return resolveFunctionPointer(CE->getOperand(0));
+                }
+            }
+            
+            // Handle address of function
+            if (UnaryOperator* UO = dyn_cast<UnaryOperator>(V)) {
+                if (UO->getOpcode() == UnaryOperator::AddrSpaceCast) {
+                    return resolveFunctionPointer(UO->getOperand(0));
+                }
+            }
+            
+            // Handle loading from a pointer
+            if (LoadInst* LI = dyn_cast<LoadInst>(V)) {
+                Value* PtrOp = LI->getPointerOperand();
+                
+                // Look through all users of the pointer to find where it's stored
+                for (User* U : PtrOp->users()) {
+                    if (StoreInst* SI = dyn_cast<StoreInst>(U)) {
+                        if (SI->getPointerOperand() == PtrOp) {
+                            Value* StoredValue = SI->getValueOperand();
+                            if (Function* F = resolveFunctionPointer(StoredValue)) {
+                                return F;
+                            }
+                        }
+                    }
+                }
+            }
+            
+            return nullptr;
+        }
+
+        void handleFunctionCall(CallInst* CI) {
+            Function* DirectF = CI->getCalledFunction();
+            Function* F = DirectF;
+            
+            // If there's no direct function, try to resolve the function pointer
+            if (!DirectF) {
+                Value* CalledValue = CI->getCalledOperand();
+                F = resolveFunctionPointer(CalledValue);
+            }
+            
+            // Skip if we couldn't resolve the function or if it's a debug intrinsic
+            if (!F || F->getName().startswith("llvm.dbg")) return;
+            
+            func_call_map fcm;
             if (CI->getDebugLoc()) {
                 fcm.name = F->getName().str();
                 fcm.args = std::vector<param>();
@@ -251,15 +302,15 @@ namespace {
                     if (argValue.empty()) {
                         fcm.args.push_back({-1, "unknown"});
                     } else {
-                        fcm.args.push_back({ii, argValue});\
-                        ii+=1;
+                        fcm.args.push_back({ii, argValue});
+                        ii++;
                     }
                 }
+                
+                fcm.scope = current_scope;
+                fcm.line = CI->getDebugLoc().getLine();
+                function_calls.push_back(fcm);
             }
-
-            fcm.scope = current_scope;
-            fcm.line = CI->getDebugLoc().getLine();
-            function_calls.push_back(fcm);
         }
 
         void processInstruction(Instruction* I) {
@@ -465,7 +516,6 @@ namespace {
                 unsigned int lineNum = std::stoi(numberStr);
                 uniqueLines.insert(lineNum);
 
-                errs() << "Trying to find this"<<lineNum<<"\n";
                 // Extract the branch id
                 // find position of first ':'
                 size_t pos2 = line.find(':');
@@ -834,8 +884,6 @@ namespace {
                 errs() << "\n\n\n";
             }
 
-            // print target lines
-            errs() << "Target lines: \n";
             for (auto tt : ttt) {
                 int tl = tt.first;
                 string branch_id = tt.second;
