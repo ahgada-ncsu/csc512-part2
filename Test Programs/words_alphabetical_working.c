@@ -1,3 +1,4 @@
+// VERIFIED test4.c
 /**
  * @file
  * @brief Printing the [words contained in a

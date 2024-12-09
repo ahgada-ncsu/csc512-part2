@@ -87,7 +87,7 @@ rebuild_cache/fast: rebuild_cache
 
 # Special rule for the target list_install_components
 list_install_components:
-	@$(CMAKE_COMMAND) -E cmake_echo_color --switch=$(COLOR) --cyan "Available install components are: \"SeminalPass\" \"SkeletonPass\""
+	@$(CMAKE_COMMAND) -E cmake_echo_color --switch=$(COLOR) --cyan "Available install components are: \"SeminalPass\""
 .PHONY : list_install_components
 
 # Special rule for the target list_install_components
@@ -201,45 +201,6 @@ acc_gen/fast:
 .PHONY : acc_gen/fast
 
 #=============================================================================
-# Target rules for targets named SkeletonPass
-
-# Build rule for target.
-SkeletonPass: cmake_check_build_system
-	$(MAKE) $(MAKESILENT) -f CMakeFiles/Makefile2 SkeletonPass
-.PHONY : SkeletonPass
-
-# fast build rule for target.
-SkeletonPass/fast:
-	$(MAKE) $(MAKESILENT) -f skeleton/CMakeFiles/SkeletonPass.dir/build.make skeleton/CMakeFiles/SkeletonPass.dir/build
-.PHONY : SkeletonPass/fast
-
-#=============================================================================
-# Target rules for targets named install-SkeletonPass
-
-# Build rule for target.
-install-SkeletonPass: cmake_check_build_system
-	$(MAKE) $(MAKESILENT) -f CMakeFiles/Makefile2 install-SkeletonPass
-.PHONY : install-SkeletonPass
-
-# fast build rule for target.
-install-SkeletonPass/fast:
-	$(MAKE) $(MAKESILENT) -f skeleton/CMakeFiles/install-SkeletonPass.dir/build.make skeleton/CMakeFiles/install-SkeletonPass.dir/build
-.PHONY : install-SkeletonPass/fast
-
-#=============================================================================
-# Target rules for targets named install-SkeletonPass-stripped
-
-# Build rule for target.
-install-SkeletonPass-stripped: cmake_check_build_system
-	$(MAKE) $(MAKESILENT) -f CMakeFiles/Makefile2 install-SkeletonPass-stripped
-.PHONY : install-SkeletonPass-stripped
-
-# fast build rule for target.
-install-SkeletonPass-stripped/fast:
-	$(MAKE) $(MAKESILENT) -f skeleton/CMakeFiles/install-SkeletonPass-stripped.dir/build.make skeleton/CMakeFiles/install-SkeletonPass-stripped.dir/build
-.PHONY : install-SkeletonPass-stripped/fast
-
-#=============================================================================
 # Target rules for targets named SeminalPass
 
 # Build rule for target.
@@ -293,12 +254,9 @@ help:
 	@echo "... acc_gen"
 	@echo "... install-SeminalPass"
 	@echo "... install-SeminalPass-stripped"
-	@echo "... install-SkeletonPass"
-	@echo "... install-SkeletonPass-stripped"
 	@echo "... intrinsics_gen"
 	@echo "... omp_gen"
 	@echo "... SeminalPass"
-	@echo "... SkeletonPass"
 .PHONY : help
 
 

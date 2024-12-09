@@ -1,4 +1,3 @@
-// VALIDATED test5.c
 #include <assert.h>
 #include <inttypes.h>
 #include <stdio.h>
@@ -232,17 +231,14 @@ int main()
     // for(int i=0;i<choice;i++) {
     //     test1();
     // }
-    switch(choice)
-    {
-        case 1:
-            test1();
-            break;
-        case 2:
-            test2();
-            break;
-        default:
-            printf("Invalid choice. Exiting.\n");
-            return 1;
+
+    if(choice == 1){
+        test1();
+    }else if(choice == 2){
+        test2();
+    }else {
+        printf("Invalid choice. Exiting.\n");
+        return 1;
     }
     
     return 0;

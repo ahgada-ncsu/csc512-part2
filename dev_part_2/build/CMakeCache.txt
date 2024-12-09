@@ -278,9 +278,6 @@ LLVM_DIR:PATH=/usr/lib/llvm-14/cmake
 //Statically link SeminalPass into tools (if available)
 LLVM_SEMINALPASS_LINK_INTO_TOOLS:BOOL=OFF
 
-//Statically link SkeletonPass into tools (if available)
-LLVM_SKELETONPASS_LINK_INTO_TOOLS:BOOL=OFF
-
 //Arguments to supply to pkg-config
 PKG_CONFIG_ARGN:STRING=
 
@@ -289,9 +286,6 @@ PKG_CONFIG_EXECUTABLE:FILEPATH=/usr/bin/pkg-config
 
 //Dependencies for the target
 SeminalPass_LIB_DEPENDS:STATIC=general;LLVM;
-
-//Dependencies for the target
-SkeletonPass_LIB_DEPENDS:STATIC=general;LLVM;
 
 //Value Computed by CMake
 Skeleton_BINARY_DIR:STATIC=/home/ahgada/csc512-part2/dev_part_2/build
@@ -454,7 +448,7 @@ CMAKE_MODULE_LINKER_FLAGS_RELWITHDEBINFO-ADVANCED:INTERNAL=1
 //ADVANCED property for variable: CMAKE_NM
 CMAKE_NM-ADVANCED:INTERNAL=1
 //number of local generators
-CMAKE_NUMBER_OF_MAKEFILES:INTERNAL=3
+CMAKE_NUMBER_OF_MAKEFILES:INTERNAL=2
 //ADVANCED property for variable: CMAKE_OBJCOPY
 CMAKE_OBJCOPY-ADVANCED:INTERNAL=1
 //ADVANCED property for variable: CMAKE_OBJDUMP

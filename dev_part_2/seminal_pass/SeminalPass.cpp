@@ -625,7 +625,7 @@ namespace {
             // find the variable in variable_infos
             int v = find_variable_index_in_variable_infos(var_name, scope);
             if (v == -1) {
-                errs() << "Variable " << var_name << " not found in variable_infos\n";
+                // errs() << "Variable " << var_name << " not found in variable_infos\n";
                 return;
             }
             
@@ -641,7 +641,7 @@ namespace {
                     for (size_t i = 1; i < fcall.args.size(); i++) {
                         // errs() << "Checking if " << fcall.args[i].name << " is equal to " << var_name << "\n";
                         if (fcall.args[i].name == var_name) {
-                            string ss = var_name + " gets value from user input via scanf";
+                            string ss = "#:" + var_name + " gets value from user input via scanf";
                             s.push_back(ss);
                             found = true;
                             done = true;
@@ -653,11 +653,18 @@ namespace {
 
             if (done) {
                 if (found && !seminal) {
-                    errs() << "Branch is seminal  source code line: "<< current_line << " branch ID: "<< current_branch_id <<"\n";
+                    // errs() << "Branch is seminal  source code line: "<< current_line << " branch ID: "<< current_branch_id <<"\n";
+                    // for(auto &ss: s) {
+                    //     errs() << "  " << ss << "\n";
+                    // }
+                    // errs() << "\n";
+                    std::ofstream out("def-use-out.txt", std::ios_base::app);
+                    out << "Branch is seminal source code line: "<< current_line << " branch ID: "<< current_branch_id <<"\n";
                     for(auto &ss: s) {
-                        errs() << "  " << ss << "\n";
+                        out << "  " << ss << "\n";
                     }
-                    errs() << "\n";
+                    out << "\n";
+                    out.close();
                     seminal_output[current_line] = s;
                     seminal = true;
                 }
@@ -709,22 +716,22 @@ namespace {
                         string fname = function_calls[i].name;
                         if(fname == "getc" || fname == "fgetc") {
                             string ss = "";
-                            ss += var_name + " gets value from each character in variable caleld " + function_calls[i].args[0].name;
+                            ss += "#: " + var_name + " gets value from each character in variable called " + function_calls[i].args[0].name;
                             s.push_back(ss);
                             found_val=false;
                         }else if(fname == "fopen"){
                             string ss = "";
-                            ss += var_name + " gets value from file at path " + function_calls[i].args[0].name + " opened in mode " + function_calls[i].args[1].name;
+                            ss += "#: " + var_name + " gets value from file at path " + function_calls[i].args[0].name + " opened in mode " + function_calls[i].args[1].name;
                             s.push_back(ss);
                             found_val = true;
                         } else if(fname == "fread"){
                             string ss = "";
-                            ss += var_name + " gets value from file buffer named " + function_calls[i].args[0].name;
+                            ss += "#: " + var_name + " gets value from file buffer named " + function_calls[i].args[0].name;
                             s.push_back(ss);
                             found_val = true;
                         } else if(fname == "scanf" || fname == "__isoc99_scanf"){
                             string ss = "";
-                            ss += var_name + " gets value from user input";
+                            ss += "#: " + var_name + " gets value from user input";
                             s.push_back(ss);
                             found_val = true;
                         }
@@ -744,11 +751,19 @@ namespace {
             }
 
             if( (found_val || found) && !seminal ) {
-                errs() << "Branch is seminal  source code line: "<< current_line << " branch ID: "<< current_branch_id <<"\n";
+                // errs() << "Branch is seminal source code line: "<< current_line << " branch ID: "<< current_branch_id <<"\n";
+                // for(auto &ss: s) {
+                //     errs() << "  " << ss << "\n";
+                // }
+                // errs() << "\n";
+                // write contents of s to a file called def-use-out.txt (append if there is content already)
+                std::ofstream out("def-use-out.txt", std::ios_base::app);
+                out << "Branch is seminal source code line: "<< current_line << " branch ID: "<< current_branch_id <<"\n";
                 for(auto &ss: s) {
-                    errs() << "  " << ss << "\n";
+                    out << "  " << ss << "\n";
                 }
-                errs() << "\n";
+                out << "\n";
+                out.close();
                 seminal_output[current_line] = s;
                 seminal = true;
             }
@@ -759,9 +774,124 @@ namespace {
         int current_line = 0;
         unordered_map<int, vector<string>> seminal_output;
 
+        std::vector<std::string> analyzeSeminalBehavior(const std::string& filename) {
+    std::ifstream file(filename);
+    std::set<std::string> uniqueBehaviors;
+    std::string line;
+    bool inBranch = false;
+    std::set<std::string> fileVarsInBranch;
+    bool hasFileRead = false;
+    std::vector<std::string> branchLines;
+
+    if (!file.is_open()) {
+        return {};
+    }
+
+    while (std::getline(file, line)) {
+        // Check for new branch
+        if (line.find("Branch is seminal") != std::string::npos) {
+            // Process previous branch
+            for (const auto& fileVar : fileVarsInBranch) {
+                string mf = fileVar;
+                if(fileVar.find("opened in") != std::string::npos) {
+                    size_t pos = fileVar.find("opened in");
+                    mf = fileVar.substr(0, pos);
+                }
+                if (hasFileRead) {
+                    uniqueBehaviors.insert("size of " + mf);
+                }
+                uniqueBehaviors.insert(mf);
+            }
+            
+            // Reset for new branch
+            inBranch = true;
+            fileVarsInBranch.clear();
+            hasFileRead = false;
+            branchLines.clear();
+            continue;
+        }
+
+        // Skip if not in a branch or line is empty
+        if (!inBranch || line.empty()) continue;
+
+        // Check if line belongs to current branch (has 2 spaces at start)
+        if (line.find("  ") == 0) {
+            branchLines.push_back(line);
+
+            // Check for file read operations (gets value from file buffer OR gets value from each character)
+            if (line.find("gets value from file buffer") != std::string::npos ||
+                (line.find("#") != std::string::npos && line.find("gets value from each character") != std::string::npos)) {
+                hasFileRead = true;
+            }
+
+            // Check for scanf operations (marked with #)
+            if (line.find("#") != std::string::npos && line.find("scanf") != std::string::npos) {
+                size_t varStart = line.find(":") + 1;
+                size_t varEnd = line.find("gets") - 1;
+                if (varStart != std::string::npos && varEnd != std::string::npos) {
+                    std::string variable = line.substr(varStart, varEnd - varStart);
+                    variable = variable.substr(variable.find_first_not_of(" "), 
+                                            variable.find_last_not_of(" ") + 1);
+                    if (!variable.empty()) {
+                        uniqueBehaviors.insert(variable);
+                    }
+                }
+            }
+
+            // Check for file operations with path
+            if (line.find("gets value from file at path") != std::string::npos) {
+                size_t pathStart = line.find("path") + 5;
+                size_t modeStart = line.find("mode") - 1;
+                if (pathStart != std::string::npos && modeStart != std::string::npos) {
+                    std::string filepath = line.substr(pathStart, modeStart - pathStart);
+                    filepath = filepath.substr(filepath.find_first_not_of(" "), 
+                                            filepath.find_last_not_of(" ") + 1);
+                    if (!filepath.empty() && filepath != "\"rb\"" && filepath != "\"wb\"") {
+                        fileVarsInBranch.insert(filepath);
+                    }
+                }
+            }
+        } else {
+            // Process the branch before moving to next
+            for (const auto& fileVar : fileVarsInBranch) {
+                string mf = fileVar;
+                if(fileVar.find("opened in") != std::string::npos) {
+                    size_t pos = fileVar.find("opened in");
+                    mf = fileVar.substr(0, pos);
+                }
+                if (hasFileRead) {
+                    uniqueBehaviors.insert("size of " + mf);
+                }
+                uniqueBehaviors.insert(mf);
+            }
+            inBranch = false;
+            branchLines.clear();
+        }
+    }
+
+    // Process the last branch if exists
+    if (inBranch) {
+        for (const auto& fileVar : fileVarsInBranch) {
+            string mf = fileVar;
+            if(fileVar.find("opened in") != std::string::npos) {
+                size_t pos = fileVar.find("opened in");
+                mf = fileVar.substr(0, pos);
+            }
+            if (hasFileRead) {
+                uniqueBehaviors.insert("size of " + mf);
+            }
+            uniqueBehaviors.insert(mf);
+        }
+    }
+
+    return std::vector<std::string>(uniqueBehaviors.begin(), uniqueBehaviors.end());
+}
 
     public:
         PreservedAnalyses run(Module &M, ModuleAnalysisManager &AM) {
+
+            std::ofstream file("def-use-out.txt", std::ofstream::out | std::ofstream::trunc);
+            file.close();
              // Track global variables first
             trackGlobalVariables(M);
 
@@ -810,7 +940,6 @@ namespace {
                             processInstruction(&I);
                         }
                     }
-                    errs() << "\n";
                 }
             }
 
@@ -906,7 +1035,8 @@ namespace {
                 // find variables per line on line tl
                 current_line = tl;
                 current_branch_id = branch_id;
-                if(loop_map[tl] == 0) continue;
+                // errs() << "Analyzing line: " << tl << " branch ID: "<< branch_id << "\n";
+                // if(loop_map[tl] == 0) continue;
                 seminal_output[tl] = vector<string>();
                 for (auto &vp : variables_per_line) {
                     visited.clear();
@@ -918,6 +1048,14 @@ namespace {
                         }
                     }
                 }
+            }
+
+            // call analyzeSeminalBehavior
+            vector<string> uniqueBehaviors = analyzeSeminalBehavior("def-use-out.txt");
+            // print unique behaviors
+            errs() << "Final seminal behavior:\n";
+            for (const std::string& behavior : uniqueBehaviors) {
+                errs() << "  " << behavior << "\n";
             }
             
             

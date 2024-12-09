@@ -7,15 +7,6 @@
 /home/ahgada/csc512-part2/dev_part_2/build/CMakeFiles/install.dir
 /home/ahgada/csc512-part2/dev_part_2/build/CMakeFiles/install/local.dir
 /home/ahgada/csc512-part2/dev_part_2/build/CMakeFiles/install/strip.dir
-/home/ahgada/csc512-part2/dev_part_2/build/skeleton/CMakeFiles/SkeletonPass.dir
-/home/ahgada/csc512-part2/dev_part_2/build/skeleton/CMakeFiles/install-SkeletonPass.dir
-/home/ahgada/csc512-part2/dev_part_2/build/skeleton/CMakeFiles/install-SkeletonPass-stripped.dir
-/home/ahgada/csc512-part2/dev_part_2/build/skeleton/CMakeFiles/edit_cache.dir
-/home/ahgada/csc512-part2/dev_part_2/build/skeleton/CMakeFiles/rebuild_cache.dir
-/home/ahgada/csc512-part2/dev_part_2/build/skeleton/CMakeFiles/list_install_components.dir
-/home/ahgada/csc512-part2/dev_part_2/build/skeleton/CMakeFiles/install.dir
-/home/ahgada/csc512-part2/dev_part_2/build/skeleton/CMakeFiles/install/local.dir
-/home/ahgada/csc512-part2/dev_part_2/build/skeleton/CMakeFiles/install/strip.dir
 /home/ahgada/csc512-part2/dev_part_2/build/seminal_pass/CMakeFiles/SeminalPass.dir
 /home/ahgada/csc512-part2/dev_part_2/build/seminal_pass/CMakeFiles/install-SeminalPass.dir
 /home/ahgada/csc512-part2/dev_part_2/build/seminal_pass/CMakeFiles/install-SeminalPass-stripped.dir

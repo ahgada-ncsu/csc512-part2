@@ -44,7 +44,6 @@ endif()
 
 if(NOT CMAKE_INSTALL_LOCAL_ONLY)
   # Include the install script for each subdirectory.
-  include("/home/ahgada/csc512-part2/dev_part_2/build/skeleton/cmake_install.cmake")
   include("/home/ahgada/csc512-part2/dev_part_2/build/seminal_pass/cmake_install.cmake")
 
 endif()
