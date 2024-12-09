@@ -6,6 +6,8 @@
 #include "llvm/IR/Instructions.h"
 #include "llvm/IR/DebugInfo.h"
 #include "llvm/IR/DebugInfoMetadata.h"
+#include "llvm/IR/GetElementPtrTypeIterator.h"
+
 #include <map>
 #include <string>
 #include <set>
@@ -34,6 +36,7 @@ typedef struct {
     int line_num;
     vector<variable> vars;
     string scope;
+    int part_of_loop;
 } line_map;
 
 typedef struct {

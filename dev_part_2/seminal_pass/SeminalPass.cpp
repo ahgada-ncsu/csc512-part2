@@ -309,12 +309,22 @@ namespace {
             }
         }
 
-        void getVariableNamesAtLine(const Instruction &I) {
+        unordered_map<unsigned int, int> loop_map;
+
+        void getVariableNamesAtLine(const Instruction &I,  Function &F, LoopInfo &LI) {
             const DebugLoc &DL = I.getDebugLoc();
             if (!DL) return;
 
             unsigned int currentLine = DL.getLine();
             auto &varNames = lineToVars[currentLine];
+
+            if (isSourceLineInLoop(currentLine, F, LI)) {
+                // errs()<<"Line "<<currentLine<<" is in a loop\n";
+                loop_map[currentLine] = 1;
+            }else{
+                // errs()<<"Line "<<currentLine<<" is not in a loop\n";
+                loop_map[currentLine] = 0;
+            }
 
             // Check for DbgDeclareInst directly
             if (const DbgDeclareInst *DDI = dyn_cast<DbgDeclareInst>(&I)) {
@@ -381,14 +391,55 @@ namespace {
             }
         }
 
-        std::vector<unsigned int> readBranchInfo() {
+        bool isSourceLineInLoop(unsigned int sourceLine, Function &F, LoopInfo &LI) {
+            for (BasicBlock &BB : F) {
+                for (Instruction &I : BB) {
+                    if (!I.getDebugLoc()) continue;
+                    
+                    unsigned int currentLine = I.getDebugLoc().getLine();
+                    
+                    // If we found an instruction at our target line
+                    if (currentLine == sourceLine) {
+                        // Need to pass the address of BB to getLoopFor
+                        Loop* L = LI.getLoopFor(&BB);
+                        if (!L) continue;
+                        
+                        // Get all the blocks in the loop
+                        auto loopBlocks = L->getBlocks();  // This returns an ArrayRef
+                        
+                        // Get the line range of the loop
+                        unsigned loopStartLine = UINT_MAX;
+                        unsigned loopEndLine = 0;
+                        
+                        for (BasicBlock* loopBB : loopBlocks) {
+                            for (Instruction &loopInst : *loopBB) {
+                                if (loopInst.getDebugLoc()) {
+                                    unsigned instLine = loopInst.getDebugLoc().getLine();
+                                    loopStartLine = std::min(loopStartLine, instLine);
+                                    loopEndLine = std::max(loopEndLine, instLine);
+                                }
+                            }
+                        }
+                        
+                        // Check if our source line falls within the loop's range
+                        if (sourceLine >= loopStartLine && sourceLine <= loopEndLine) {
+                            return true;
+                        }
+                    }
+                }
+            }
+            return false;
+        }
+
+        std::vector<pair<int, string>> readBranchInfo() {
             std::ifstream file("branch_info.txt");
             std::set<unsigned int> uniqueLines;  // Using set for unique numbers
+            vector<string> branch_id;
             std::string line;
 
             if (!file.is_open()) {
                 errs() << "Error: Could not open branch_info.txt\n";
-                return std::vector<unsigned int>();
+                return std::vector<pair<int,string>>();
             }
 
             while (std::getline(file, line)) {
@@ -413,12 +464,27 @@ namespace {
                 // Convert to integer and add to set
                 unsigned int lineNum = std::stoi(numberStr);
                 uniqueLines.insert(lineNum);
+
+                errs() << "Trying to find this"<<lineNum<<"\n";
+                // Extract the branch id
+                // find position of first ':'
+                size_t pos2 = line.find(':');
+                if (pos2 == std::string::npos) continue;
+
+                // Extract the part before the ':'
+                std::string branch_id_str = line.substr(0, pos2);
+                branch_id.push_back(branch_id_str);
+
             }
 
             file.close();
 
-            // Convert set to vector for return
-            return std::vector<unsigned int>(uniqueLines.begin(), uniqueLines.end());
+            vector<unsigned int> uu = std::vector<unsigned int>(uniqueLines.begin(), uniqueLines.end());
+            std::vector<pair<int, string>> branch_info;
+            for(int i = 0; i < branch_id.size(); i++) {
+                branch_info.push_back({uu[i], branch_id[i]});
+            }
+            return branch_info;
         }
 
         // function that finds the index of variable in variable_infos with name=n and scope=s
@@ -482,19 +548,56 @@ namespace {
         }
 
         bool seminal = false;
+        vector<pair<string, string>> visited;
+        string current_branch_id = "";
 
         void do_analysis(string var_name, string scope, vector<string> s, bool found=false) {
+            // check if we have already visited this variable in this scope
+            for (auto &v : visited) {
+                if (v.first == var_name && v.second == scope) {
+                    return;
+                }
+            }
             // find the variable in variable_infos
             int v = find_variable_index_in_variable_infos(var_name, scope);
+            if (v == -1) {
+                errs() << "Variable " << var_name << " not found in variable_infos\n";
+                return;
+            }
+            
             var_map vm = variable_infos[v];
             bool done = false;
-            // errs() << "Analyzing variable: " << var_name << " at line " << vm.defined_at_line << " with scope: "<<vm.scope << "\n";
 
-            // if line number of definition is in functions, then this is a function call
-                // note down function parameter in question
-                // look for where that function is called
-                // look for the name of that parameter in the function call
-                // find where that parameter gets its value from in the new scope
+            visited.push_back({var_name, scope});
+
+
+            for (const auto& fcall : function_calls) {
+                if (fcall.scope == scope && (fcall.name == "__isoc99_scanf" || fcall.name == "scanf")) {
+                    // Start from index 1 since first argument is format string
+                    for (size_t i = 1; i < fcall.args.size(); i++) {
+                        // errs() << "Checking if " << fcall.args[i].name << " is equal to " << var_name << "\n";
+                        if (fcall.args[i].name == var_name) {
+                            string ss = var_name + " gets value from user input via scanf";
+                            s.push_back(ss);
+                            found = true;
+                            done = true;
+                            break;
+                        }
+                    }
+                }
+            }
+
+            if (done) {
+                if (found && !seminal) {
+                    errs() << "Branch is seminal  source code line: "<< current_line << " branch ID: "<< current_branch_id <<"\n";
+                    for(auto &ss: s) {
+                        errs() << "  " << ss << "\n";
+                    }
+                    seminal_output[current_line] = s;
+                    seminal = true;
+                }
+                return;
+            }
             
             for(auto &f: functions) {
                 if(f.line_num == vm.defined_at_line) {
@@ -515,7 +618,7 @@ namespace {
                                 continue;
                             else{
                                 ss = "";
-                                ss += var_name + " gets value from argument " + fcm.args[arg_index].name + " in function call " + f.name;
+                                ss += var_name + " gets value from argument " + fcm.args[arg_index].name + " in function call to " + f.name;
                                 s.push_back(ss);
                                 do_analysis(fcm.args[arg_index].name, fcm.scope, s);
                                 done = true;
@@ -525,19 +628,6 @@ namespace {
                     }
                 }
             }
-            
-            // check if it gets value from some other variable
-                // loop through gets_value_infos
-                // if it gets value from "val" end search and deem that branch to be not seminal
-                // if it gets value from "func"
-                    // note down func value in question
-                    // if more variables are involved, then find their source
-                    // if more variables are not involved, then check if function call is an input call
-                        // if it is an input call, then find where that input gets its value from
-                        // if it is not an input call, then find where that function is defined and repeat the process
-                            // if it is, stop search and deem that branch to be seminal
-                            // if it is not, then stop search and deem the branch to have no seminal value                
-                // if it gets value from only some other "var", then recursively search where that "var" gets its value from
             
             if(done) return;
 
@@ -564,10 +654,10 @@ namespace {
                             found_val = true;
                         } else if(fname == "fread"){
                             string ss = "";
-                            ss += var_name + " gets value from file at path " + function_calls[i].args[0].name + " read in mode " + function_calls[i].args[1].name;
+                            ss += var_name + " gets value from file buffer named " + function_calls[i].args[0].name;
                             s.push_back(ss);
                             found_val = true;
-                        } else if(fname == "scanf"){
+                        } else if(fname == "scanf" || fname == "__isoc99_scanf"){
                             string ss = "";
                             ss += var_name + " gets value from user input";
                             s.push_back(ss);
@@ -588,15 +678,20 @@ namespace {
                 }
             }
 
-            if(found_val || found) {
-                errs() << "Branch is seminal\n";
+            if( (found_val || found) && !seminal ) {
+                errs() << "Branch is seminal  source code line: "<< current_line << " branch ID: "<< current_branch_id <<"\n";
                 for(auto &ss: s) {
                     errs() << "  " << ss << "\n";
                 }
+                seminal_output[current_line] = s;
+                seminal = true;
             }
         }
 
         bool debug = true;
+
+        int current_line = 0;
+        unordered_map<int, vector<string>> seminal_output;
 
 
     public:
@@ -604,15 +699,22 @@ namespace {
              // Track global variables first
             trackGlobalVariables(M);
 
-            targetLines = readBranchInfo();
+            for(unsigned int ii=0; ii<1000; ii++) loop_map[ii] = 0;
+            
+            vector<pair<int, string>> ttt = readBranchInfo();
+            // targetLines = readBranchInfo();
 
             for (Function &F : M) {
                 if (F.isDeclaration())
                     continue;
+
+                FunctionAnalysisManager &FAM = 
+                    AM.getResult<FunctionAnalysisManagerModuleProxy>(M).getManager();
+                LoopInfo &LI = FAM.getResult<LoopAnalysis>(F);
                     
                 for (BasicBlock &BB : F) {
                     for (Instruction &I : BB) {
-                        getVariableNamesAtLine(I);
+                        getVariableNamesAtLine(I, F, LI);
                     }
                 }
             }
@@ -625,6 +727,7 @@ namespace {
                     for (const auto &varName : lineEntry.second) 
                         lm.vars.push_back({varName});
                 }
+                lm.part_of_loop = loop_map[lm.line_num];
                 variables_per_line.push_back(lm);
             }
     
@@ -684,6 +787,7 @@ namespace {
                 // print variables per line
                 for (auto &vp : variables_per_line) {
                     errs() << "Line: " << vp.line_num << "\n";
+                    errs() << "  Part of Loop: " << vp.part_of_loop << "\n";
                     errs() << "  Scope: " << vp.scope << "\n";
                     for (auto &va : vp.vars) {
                         errs() << "  Variable: " << va.name << "\n";
@@ -726,29 +830,32 @@ namespace {
                         errs() << "  Argument: " << pa.name << " at position " << pa.id << "\n";
                     }
                 }
-
                 
-
                 errs() << "\n\n\n";
             }
 
             // print target lines
-            errs() << "Target lines: ";
-            for (auto tl : targetLines) {
+            errs() << "Target lines: \n";
+            for (auto tt : ttt) {
+                int tl = tt.first;
+                string branch_id = tt.second;
                 // find variables per line on line tl
-                errs() << tl << " ";
+                current_line = tl;
+                current_branch_id = branch_id;
+                if(loop_map[tl] == 0) continue;
+                seminal_output[tl] = vector<string>();
                 for (auto &vp : variables_per_line) {
+                    visited.clear();
                     if(vp.line_num == tl) {
-                        for (auto &va : vp.vars) {
-                            errs() << va.name << " ";
+                        for (auto va : vp.vars) {
+                            seminal = false;
                             vector<string> s;
                             do_analysis(va.name, vp.scope, s);
                         }
                     }
                 }
             }
-
-
+            
             
             return PreservedAnalyses::all();
         }
