@@ -1,18 +1,20 @@
 # Compilation
 
 ```bash
-- build the pass
+build the pass
+
 $ mkdir build
 $ cd build && cmake .. && make && cd ..
 
-- choose the test_program you want to test
-- copy the corresponding branch_info file from the folder ./branch_infos/test<choose>.txt to branch_info.txt
+choose the test_program you want to test
+copy the corresponding branch_info file from the folder ./branch_infos/test<choose>.txt to branch_info.txt
 
 $ cp branch_infos/test<choose>.txt branch_info.txt
 
 $ clang -fpass-plugin=`echo build/seminal_pass/SeminalPass.*` -g test<choose>.c
 
-- the functioning of llvm pass will be proved by the above compilation command, however if you wish to run the binary output:
+the functioning of llvm pass will be proved by the above compilation command, however if you wish to run the binary output:
+
 $ ./a.out
 
 ```
@@ -37,6 +39,7 @@ $ ./a.out
     - malloc
     - structs
     - multiple input functions like (fopen, fread, fwrite, fgetc, getc, scanf)
+- Note these are the 7 programs that we submit for our final combined submissions too.
 
 # Explaining the results
 - expected output for each of the test programs is present in the foldr ./seminal_outputs
@@ -55,3 +58,73 @@ $ ./a.out
     - This means that even if an argument (that stems from user input) is not affecting the function body, it will be still considered as a possible seminal variable.
     - The test programs we used were such that all the arguments were always seminal.
     - Hence, we did not detect it in time until very late.
+
+# Code for the pass
+- The code for the llvm pass is in ./seminal_pass/SeminalPass.cpp
+- The header file for the same is in ./seminal_pass/sp.hpp
+
+# Strategy 
+- Idea was to use def-use analysis on the entire program.
+- We keep track of 
+    - global variables
+    - all function definitions
+    - all function calls
+    - all variables
+    - variables on each line 
+- The data structures used to store these are defined in sp.hpp
+
+- We maintain everything that is important including scope, how a variable gets its value, where is it defined, how it is defined ...
+
+- using the context we gather above, we perform def-use analysis
+
+### Pseudo code for def use analysis
+
+```
+def run():
+    for each line in branch_info.txt:
+        
+        get start line of the branching statement
+        
+        for each variable (v) in that line:
+            // analyze where that variable sources from
+            do_analysis(v, scope)
+```    
+
+```
+def do_analysis(var, scope):
+    v = find variable in the variable_infos
+
+    check if there is a function call to scanf:
+        check if variable name matches the argument to scanf:
+            seminal=true
+            return
+
+    if(seminal) return
+
+    check if the variable defined in a function definition:
+        check where that function is called:
+            translate the argument to what it is called in the other scope
+            do_analysis(var, other_scope)
+            seminal = true
+    
+    if(seminal) return
+
+    // if none of the above is true
+    for g in var.gets_value_from:
+        analyze g.code
+        if g.type="func":
+            check if it is an input function type like getc, fgetc, fopen, fread etc
+            if input is found:
+                seminal = true
+        
+        if g.type="val":
+            return; // gets value from constant value
+
+        if g.type = "var":
+            // loop through all the variables defined in line g
+            for vv in g.variables_in_line_g:
+                do_analysis(var, scope)
+
+```
+
+

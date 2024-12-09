@@ -1,3 +1,0 @@
-Final seminal behavior:
-  "file.txt" 
-  size of "file.txt" 

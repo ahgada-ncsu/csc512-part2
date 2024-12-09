@@ -1,36 +1,9 @@
-Branch is seminal source code line: 23 branch ID: br_1
-  book defined as a parameter in function add_contact
-  book gets value from argument book in function call to add_contact
-  #:count gets value from user input via scanf
+Branch is seminal source code line: 17 branch ID: br_1
+  #: c gets value from each character in variable called fp
+  fp defined as a parameter in function func
+  fp gets value from argument ppp in function call to func
+  #: ppp gets value from file at path "file.txt" opened in mode "r"
 
-Branch is seminal source code line: 38 branch ID: br_2
-  book defined as a parameter in function find_contact_by_name
-  book gets value from argument book in function call to find_contact_by_name
-  #:count gets value from user input via scanf
-
-Branch is seminal source code line: 39 branch ID: br_3
-  book defined as a parameter in function find_contact_by_name
-  book gets value from argument book in function call to find_contact_by_name
-  #:count gets value from user input via scanf
-
-Branch is seminal source code line: 39 branch ID: br_3
-  name defined as a parameter in function find_contact_by_name
-  name gets value from argument search_name in function call to find_contact_by_name
-  #:search_name gets value from user input via scanf
-
-Branch is seminal source code line: 47 branch ID: br_4
-  book defined as a parameter in function display_all_contacts
-  book gets value from argument book in function call to display_all_contacts
-  #:count gets value from user input via scanf
-
-Branch is seminal source code line: 52 branch ID: br_5
-  book defined as a parameter in function display_all_contacts
-  book gets value from argument book in function call to display_all_contacts
-  #:count gets value from user input via scanf
-
-Branch is seminal source code line: 68 branch ID: br_6
-  #:count gets value from user input via scanf
-
-Branch is seminal source code line: 89 branch ID: br_7
-  #:count gets value from user input via scanf
+Branch is seminal source code line: 28 branch ID: br_3
+  #: ppp gets value from file at path "file.txt" opened in mode "r"
 

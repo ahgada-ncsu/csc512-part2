@@ -57,3 +57,8 @@ Final seminal behavior:
   - "found" variable is dependent on search_name and it determines program behavior due to condition on line 89.
   - Hence, it is considered as a seminal behavior.
 
+```
+Note how the variables like name, phone and email are not considered as seminal behaviors even if they are user inputs.
+
+This is because they do not change program behavior at any of the key points.
+```
