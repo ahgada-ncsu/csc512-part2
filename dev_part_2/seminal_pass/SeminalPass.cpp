@@ -112,70 +112,84 @@ namespace {
         }
 
         void traceStoreValue(StoreInst* SI) {
+            // Guard against null StoreInst
+            if (!SI) return;
+            
+            // Guard against missing debug location
             if (!SI->getDebugLoc()) return;
             
             Value* PtrOp = SI->getPointerOperand();
             Value* ValOp = SI->getValueOperand();
             
+            // Guard against null operands
+            if (!PtrOp || !ValOp) return;
+            
             std::string varName = getVariableName(PtrOp);
             if (!varName.empty()) {
-                // errs() << varName << " gets value at line " << SI->getDebugLoc().getLine() << " || ";
-                
                 const DebugLoc &DL = SI->getDebugLoc();
                 DILocation* Loc = DL.get();
-                if (Loc) {
-                    StringRef File = Loc->getFilename();
-                    unsigned Line = DL.getLine();
-                    
-                    // Read the source file
-                    std::ifstream sourceFile(File.str());
-                    if (sourceFile.is_open()) {
-                        std::string sourceLine;
-                        unsigned currentLine = 1;
-                        
-                        // Read until we find the line we want
-                        while (std::getline(sourceFile, sourceLine) && currentLine < Line) {
-                            currentLine++;
-                        }
-                        
-                        if (currentLine == Line) {
-                            // errs() << "Code: " << sourceLine << "\n";
-
-                            int v = find_variable_index_in_variable_infos(varName, current_scope);
-                            if (v != -1) {
-                                var_map vm = variable_infos[v];
-                                get_list gl;
-                                gl.gets_at_line = Line;
-                                line_map lm = variables_per_line[find_line_index_in_variables_per_line(Line)];
-                                gl.vars = lm;
-                                gl.vars.scope = current_scope;
-                                if(lm.vars.size() > 1) {
-                                    // type can be func or var
-                                    if(find_function_index_in_function_calls_line(Line) != -1) {
-                                        gl.type = "func"; // func, var, val, param
-                                    } else {
-                                        gl.type = "var"; // func, var, val, param
-                                    }
-
-                                }else{
-                                    // type can be val or param
-                                    if(find_function_index_in_functions_line(Line) != -1) {
-                                        gl.type = "param"; // func, var, val, param
-                                    } else {
-                                        gl.type = "var"; // func, var, val, param
-                                    }
-                                }
-                                vector<string> temp = split(sourceLine, '=');
-                                gl.code = temp[1];
-                                vm.gets_value_infos.push_back(gl);
-                                variable_infos[v] = vm;
-                            }
-
-                        }
-                        
-                        sourceFile.close();
-                    }
+                
+                // Guard against missing location info
+                if (!Loc) return;
+                
+                StringRef File = Loc->getFilename();
+                // Guard against empty filename
+                if (File.empty()) return;
+                
+                unsigned Line = DL.getLine();
+                
+                // Guard against file open failures
+                std::ifstream sourceFile(File.str());
+                if (!sourceFile.is_open()) return;
+                
+                std::string sourceLine;
+                unsigned currentLine = 1;
+                
+                // Read until we find the line we want
+                while (std::getline(sourceFile, sourceLine) && currentLine < Line) {
+                    currentLine++;
                 }
+                
+                // Guard against not finding the line
+                if (currentLine != Line) {
+                    sourceFile.close();
+                    return;
+                }
+                
+                // Now it's safe to process the line
+                int v = find_variable_index_in_variable_infos(varName, current_scope);
+                if (v != -1) {
+                    var_map vm = variable_infos[v];
+                    get_list gl;
+                    gl.gets_at_line = Line;
+                    line_map lm = variables_per_line[find_line_index_in_variables_per_line(Line)];
+                    gl.vars = lm;
+                    gl.vars.scope = current_scope;
+                    
+                    if(lm.vars.size() > 1) {
+                        if(find_function_index_in_function_calls_line(Line) != -1) {
+                            gl.type = "func";
+                        } else {
+                            gl.type = "var";
+                        }
+                    } else {
+                        if(find_function_index_in_functions_line(Line) != -1) {
+                            gl.type = "param";
+                        } else {
+                            gl.type = "var";
+                        }
+                    }
+                    
+                    // Guard against invalid source line format
+                    vector<string> temp = split(sourceLine, '=');
+                    if (temp.size() < 2) return;
+                    
+                    gl.code = temp[1];
+                    vm.gets_value_infos.push_back(gl);
+                    variable_infos[v] = vm;
+                }
+                
+                sourceFile.close();
             }
         }
 
