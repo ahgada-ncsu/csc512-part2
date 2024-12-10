@@ -1,6 +1,0 @@
-br_1: test1.c, 17, 17
-br_2: test1.c, 17, 18
-br_3: test1.c, 20, 20
-br_4: test1.c, 20, 15
-br_5: test1.c, 28, 29
-br_6: test1.c, 28, 32

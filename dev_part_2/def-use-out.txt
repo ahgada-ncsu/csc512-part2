@@ -1,9 +1,0 @@
-Branch is seminal source code line: 17 branch ID: br_1
-  #: c gets value from each character in variable called fp
-  fp defined as a parameter in function func
-  fp gets value from argument ppp in function call to func
-  #: ppp gets value from file at path "file.txt" opened in mode "r"
-
-Branch is seminal source code line: 28 branch ID: br_3
-  #: ppp gets value from file at path "file.txt" opened in mode "r"
-
